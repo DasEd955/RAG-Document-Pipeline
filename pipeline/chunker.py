@@ -1,15 +1,13 @@
 import re
 import html
 from typing import List, Dict, Optional, Iterable, Generator, Tuple, Any
-
+from bs4 import BeautifulSoup
 try:
     import tiktoken
 except Exception:
     tiktoken = None
 
-from bs4 import BeautifulSoup
-
-
+# _get_encoding_obj(): Returns a tiktoken "encoding" object used for tokenization (encode/decode), or none if unavailable
 def _get_encoding_obj(encoding_name: Optional[str] = None) -> Any:
     if tiktoken is None:
         return None
@@ -23,7 +21,8 @@ def _get_encoding_obj(encoding_name: Optional[str] = None) -> Any:
         except Exception:
             return None
 
-
+# _token_count_with_enc(): Returns the token count for text using a provided tokenizer enc
+    # Falls back to cheap word-count if enc is unavailable or fails
 def _token_count_with_enc(text: str, enc: Any) -> int:
     if enc is not None:
         try:
@@ -32,8 +31,10 @@ def _token_count_with_enc(text: str, enc: Any) -> int:
             pass
     return len(text.split())
 
-
+# Chunker Class: Token-aware, sentence-first text chunker that yields chunks with token/char spans & provenance
+    # Orchestrates cleaning, paragraph & sentence splitting, and generation of chunks suitable for embedding/indexing
 class Chunker:
+    # Initialize chunking parameters & optional tokenizer encoding name
     def __init__(self, chunk_size: int = 256, overlap: int = 64, min_tokens: int = 50,
                  encoding_name: Optional[str] = None):
         self.chunk_size = int(chunk_size)
@@ -41,6 +42,9 @@ class Chunker:
         self.min_tokens = int(min_tokens)
         self.encoding_name = encoding_name
 
+    # clean_html(): Strips HTML boilerplate & normalizes markup to clean plain-text
+        # Uses BeautifulSoup to remove scripts/styles/nav etc., extracts text, unescapes HTML entities
+        # Normalizes line endings/whitspace & returns trimmed text ready for splitting
     def clean_html(self, raw: str) -> str:
         soup = BeautifulSoup(raw, "html.parser")
         for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "form"]):
@@ -52,17 +56,23 @@ class Chunker:
         text = re.sub(r"[ \t]+", " ", text)
         return text.strip()
 
+    # split_paragraphs(): Split normalized text into paragraphs on consecutive line blanks
     def split_paragraphs(self, text: str) -> List[str]:
         paras = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
         return paras
 
+    # sentence_split(): Split normalized text into sentences using punctuation & capitalization
+        # Note: Handles most cases, but is not a full NLP sentence parser
     def sentence_split(self, paragraph: str) -> List[str]:
         pieces = re.split(r'(?<=[.!?])\s+(?=[A-Z0-9"\'\(])', paragraph)
         return [p.strip() for p in pieces if p.strip()]
 
+    # _sentence_token_counts(): Return token counts per sentence using a tokenizer if available
+        # If a tiktoken encoding is available gives exact BPE counts, otherwise falls back to an approximate word-based count
     def _sentence_token_counts(self, sentences: List[str], enc: Any = None) -> List[int]:
         return [_token_count_with_enc(s, enc) for s in sentences]
 
+    # _sentence_char_spans(): Compute (start, end) character spans of each sentence inside the paragraph
     def _sentence_char_spans(self, paragraph: str, sentences: List[str]) -> List[Tuple[int, int]]:
         spans: List[Tuple[int, int]] = []
         pos = 0
@@ -77,7 +87,9 @@ class Chunker:
             spans.append((start, end))
             pos = end
         return spans
-
+    
+    # Yield token-aware chunks for a paragraph by greedily accumulating whole sentences
+        # Splits long sentences token-wise, produces token_span & char_span, and supports overlap
     def _iter_paragraph_chunks(self, paragraph: str, doc_id: str, source: str,
                                section_heading: Optional[str], start_index: int = 0,
                                chunk_size: Optional[int] = None, overlap: Optional[int] = None,
@@ -209,14 +221,16 @@ class Chunker:
                 next_i = j
 
             i = next_i
-
+    
+    # Materialize & return the list of chunks for a single paragraph
     def chunk_paragraph(self, paragraph: str, doc_id: str, source: str,
                         section_heading: Optional[str], start_index: int = 0,
                         chunk_size: Optional[int] = None, overlap: Optional[int] = None,
                         min_tokens: Optional[int] = None, encoding_name: Optional[str] = None) -> List[Dict]:
         return list(self._iter_paragraph_chunks(paragraph, doc_id, source, section_heading, start_index,
-                                                 chunk_size, overlap, min_tokens, encoding_name))
+                                                chunk_size, overlap, min_tokens, encoding_name))
 
+    # Split text into paragraphs & produce chunks for each paragraph; supports streaming generator or full list
     def chunk_text(self, text: str, doc_id: str, source: str, section_heading: Optional[str] = None,
                    start_index: int = 0, chunk_size: Optional[int] = None, overlap: Optional[int] = None,
                    min_tokens: Optional[int] = None, encoding_name: Optional[str] = None,
