@@ -13,3 +13,5 @@ python-dotenv==1.0.1
 # Ingestion helpers
 beautifulsoup4
 tiktoken
+requests
+playwright
