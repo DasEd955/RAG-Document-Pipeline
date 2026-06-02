@@ -10,6 +10,10 @@ __pycache__/
 venv/
 env/
 
+# Documents & Generated Chunks
+documents/
+chunks_from_*.jsonl
+
 # Jupyter
 .ipynb_checkpoints/
 
