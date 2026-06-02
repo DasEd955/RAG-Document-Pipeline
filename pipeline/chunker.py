@@ -226,7 +226,7 @@ class Chunker:
             idx = start_index
             for para in paras:
                 for ch in self._iter_paragraph_chunks(para, doc_id, source, section_heading, idx,
-                                                       chunk_size, overlap, min_tokens, encoding_name):
+                                                      chunk_size, overlap, min_tokens, encoding_name):
                     yield ch
                     idx += 1
 
