@@ -54,10 +54,36 @@
      A review-heavy corpus warrants different chunking than a long FAQ. -->
 
 **Chunk size:**
+- Default (Mixed Documents & Articles): 256 tokens per chunk.
+- Short Reviews & Forum Posts: 128 tokens per chunk.
 
 **Overlap:**
+- Default (Mixed Documents & Articles): 64 tokens. 
+- Short Reviews & Forum Posts: 32 tokens. 
+- Minimum chunk: 50 tokens (merge with neighbor if below this threshold).
 
 **Reasoning:**
+- Strategy: Implement a paragraph or sentence-first chunking with a token cap. 
+     - Preprocess: Remove boilerplate code, deduplicate repeated posts, normalize HTML/XML to avoid noisy chunks. 
+     - We will first split on semantic boundaries (headings, paragraphs, list items) and then sentence-tokenize each section. 
+     - Chunks will be built by greedily accumulating whole sentences until the token cap is reached. This preserves coherent assertions and avoids mid-sentence cuts.
+     - Edge Cases: Treat code/tables/quotes as separate chunks; keep short comments whole. 
+
+- Rationale for Sizes: 
+     - 256/64 chosen as default as 256 token chunks will preserve narrative & context in long articles, while 64 token overlap will ensure boundary facts remain intact.
+     - Longer news articles and guides will need larger chunks (256 tokens) to keep narrative and causal context intact. 
+     - Short, dense user posts & reviews will benefit from smaller chunks (128 tokens) to pinpoint specific claims and reduce noise.
+
+- Overlap purpose: A 64-token overlap will ensure that facts near chunk boundaries appear intact in at least one chunk; a smaller 32-token overlap is sufficient for short posts.
+
+- Token-Based Sizing: Use the target tokenizer (e.g., `tiktoken` or the embedding model tokenizer) to measure tokens rather than characters
+     - Tokens map to model costs and context limits.
+
+- Metadata: save `doc_id`, `source`, `title`, `section_heading`, `chunk_index`, `token_span`, and `token_count` with every chunk to enable precise grounding and filtering.
+
+- Fallback/Emergency Mode: Only if tokenization tools are unavailable, we use a sliding window algorithm of 200 characters as a last-resort backup; prefer token counts whenever possible.
+
+- Cost & Performance: Token-aware chunking allows us to control embedding costs & limit LLM context length while preserving semantics; paragraph-first logic reduces unnecessary duplicate chunks and improves attribution.
 
 ---
 
@@ -69,11 +95,39 @@
      would you weigh in choosing a different embedding model — context length, multilingual
      support, accuracy on domain-specific text, latency? -->
 
-**Embedding model:**
+**Embedding Model:**
+- Default (Development): `text-embedding-3-small` or `all-MiniLM-L6-v2` (fast, inexpensive).
+- Higher Quality (Production): `text-embedding-3-large` (better nuance on noisy, paraphrased user text).
+     - Choose multilingual or domain-finetuned embeddings for future scalability.
+- Note: Use the embedding model's tokenizer (e.g., `tiktoken` family) to measure tokens for chunk budgeting.
+- Note: Choose tokenizer first & remap chunk sizes accordingly. 
 
-**Top-k:**
+**Top-K Retrieval Counts:**
+- Candidate Retrieval: `k_candidate = 20` (fast semantic retrieval to build a candidate set).
+     - Note: Rerank with cross-encoder when precision is needed; this improves accuracy at the tradeoff of higher computing cost.
+- Rerank & pass `k_final = 3–5` to the generator: `k_final = 3` for longer (256 token) chunks; `k_final = 5` for shorter (128 token) chunks.
+     -- This ensures for longer chunks, context is preserved; shorter chunks gain precision
+- Large aggregation or sentiment queries may need `k_final = 6–8`.
+- Note: Stop concatenating chunks when adding another would exceed the LLM token budget.
+     - Mathematically: sum(token_chunks) + prompt_tokens > model_context
 
-**Production tradeoff reflection:**
+**Retrieval strategy (Hybrid + Rerank):**
+
+- Use hybrid approach; semantic search (embedding cosine) as the primary recall mechanism and BM25/keyword search to catch exact-entity matches (addresses, apartment names).
+- Rerank the top `k_candidate` with a lightweight cross-encoder or a BM25 + embedding re-weight matrix to improve precision.
+- Filter and prioritize by metadata (`source`, `date`, `rating`, `section_heading`) when the user requests it.
+
+**Production Tradeoffs & Reflection:**
+
+- If cost were no object, an embedding model that supports long context, multilingual text, domain finetuning for real-estate terms, and low-latency hosted or on-prem inference would be preferred.
+- Tradeoff Considerations: Accuracy vs. cost vs. latency vs. privacy (hosted API vs self-host).
+- Architecture Pattern: Cheap semantic index for recall + cross-encoder reranker for precision; cache embeddings and precompute reranks for popular queries.
+
+**Evaluation & tuning:**
+
+- Experiment Grid: Chunk sizes (128, 256, 384) × `k_final` (3, 5, 8).
+- Metrics: `recall@k`, `MRR`, final-answer accuracy, hallucination rate, and latency/cost per query.
+- Logging: Store retrieved chunk ids and scores for each test query to analyze failures.
 
 ---
 
@@ -86,11 +140,17 @@
 
 | # | Question | Expected answer |
 |---|----------|-----------------|
-| 1 | | |
-| 2 | | |
-| 3 | | |
-| 4 | | |
-| 5 | | |
+| 1 | What do students say about Hendricks Investments properties? | Negative sentiment: students report management problems & advise avoiding Hendricks Investments. |
+| 2 | Is downtown State College, PA expensive? | Yes, students report rental costs are higher than alternatives. |
+| 3 | Do you have to act fast to get off-campus housing at Penn State? | Yes, first year students often lease for their second year during fall semester. |
+| 4 | Is The Maxxen well ranked by students? | Positive Sentiment: Students describe The Maxxen as luxury furnished & generally safe. |
+| 5 | Can I feasibly live off-campus with no car? | Yes, students report that State College has reliable public transport. |
+
+**Scoring Rubric:**
+- 3 (Highest): Claim supported & at least one cited chunk or clear reference from the corpus.
+- 2: Correct claim but missing citation or nuance. 
+- 1: Contradicts corpus, minor hallucinations, or utilizes unsupported facts. 
+- 0 (Lowest): Complete chunk generation failure
 
 ---
 
@@ -100,10 +160,17 @@
      Consider: noisy or inconsistent documents, missing source attribution, off-topic
      retrieval, chunks that split key information across boundaries. -->
 
-1.
+1. Missing/Broken Attribution: Web scrapers or HTML normalization can result in lost URLs, headings, or paragraph offsets, leading to chunking inconsistencies.
+     - Mitigation Approach: Preserve the source URL, store character/token span, include short excerpt and/or heading with every chunk so answers can cite exact provenance. 
 
-2.
+2. Noisy/Off-Topic Content: Long news articles & forum pages may include HTML elements for navigation, ads, signatures, or filler content that inflate index size & produce irrelevant retrievals. 
+     - Mitigation Approach: Run boilerplate removal, dedupe near duplicates, apply an info-density filter (i.e., a small classification model) before embedding, and/or skip low value paragraphs. 
 
+3. Key Context/Facts Split Across Chunks: Fixed splits can divide a factual claim or context from its justification.
+     - Mitigation: Implement sentence-aware chunking + overlap, enforce a minimum chunk size & merge tiny fragments, unit test with targeted queries to ensure facts appear intact in at least one chunk. 
+
+4. Privacy & Legal Risk: Forum posts may contain copyrighted content. 
+     - Mitigation: Redact obvious PII, document data usage policy, prefer linking to sources rather than publication of full verbatim excerpts. 
 ---
 
 ## Architecture
@@ -113,6 +180,8 @@
      Label each stage with the tool or library you're using.
      You can use ASCII art, a Mermaid diagram, or embed a sketch as an image.
      You'll use this diagram as context when prompting AI tools to implement each stage. -->
+
+!(RAG-Architecture.png)
 
 ---
 
