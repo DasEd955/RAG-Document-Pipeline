@@ -102,6 +102,18 @@ class Chunker:
             min_tokens = self.min_tokens
         enc = _get_encoding_obj(encoding_name or self.encoding_name)
 
+        def _make_chunk(chunk_text: str, token_start: int, token_end: int, char_start: int, char_end: int) -> Dict:
+            return {
+                "doc_id": doc_id,
+                "source": source,
+                "section_heading": section_heading,
+                "chunk_index": idx,
+                "text": chunk_text,
+                "token_count": token_end - token_start,
+                "token_span": [token_start, token_end],
+                "char_span": [char_start, char_end],
+            }
+
         sentences = self.sentence_split(paragraph)
         if not sentences:
             return
@@ -139,16 +151,7 @@ class Chunker:
                             pos_in_sentence = int(len(s) * w / max(1, len(tokens)))
                         char_start = s_start + pos_in_sentence
                         char_end = char_start + len(chunk_text)
-                        yield {
-                            "doc_id": doc_id,
-                            "source": source,
-                            "section_heading": section_heading,
-                            "chunk_index": idx,
-                            "text": chunk_text,
-                            "token_count": tcount,
-                            "token_span": [token_start, token_end],
-                            "char_span": [char_start, char_end],
-                        }
+                        yield _make_chunk(chunk_text, token_start, token_end, char_start, char_end)
                         idx += 1
                         w += chunk_size
                 else:
@@ -167,16 +170,7 @@ class Chunker:
                             pos_in_sentence = 0
                         char_start = s_start + pos_in_sentence
                         char_end = char_start + len(chunk_text)
-                        yield {
-                            "doc_id": doc_id,
-                            "source": source,
-                            "section_heading": section_heading,
-                            "chunk_index": idx,
-                            "text": chunk_text,
-                            "token_count": tcount,
-                            "token_span": [token_start, token_end],
-                            "char_span": [char_start, char_end],
-                        }
+                        yield _make_chunk(chunk_text, token_start, token_end, char_start, char_end)
                         idx += 1
                         w += take
                 i += 1
@@ -196,16 +190,7 @@ class Chunker:
             char_start = sent_spans[i][0]
             char_end = sent_spans[j - 1][1]
 
-            yield {
-                "doc_id": doc_id,
-                "source": source,
-                "section_heading": section_heading,
-                "chunk_index": idx,
-                "text": chunk_text,
-                "token_count": tok_count,
-                "token_span": [token_start, token_end],
-                "char_span": [char_start, char_end],
-            }
+            yield _make_chunk(chunk_text, token_start, token_end, char_start, char_end)
             idx += 1
 
             if overlap and overlap > 0:
