@@ -196,8 +196,28 @@
      "I'll give Claude my Chunking Strategy section and ask it to implement chunk_text()
      with my specified chunk size and overlap" is a plan. -->
 
-**Milestone 3 — Ingestion and chunking:**
+**Milestone 3 — Ingestion & Chunking:**
+- AI Tools: GitHub Copilot (in-editor coding), Claude (design prompting & QA).
+- Input to AI: planning.md Chunking Strategy, Documents List, RAG Architecture png, 2-3 Representative Raw Documents/Sample Corpus.
+- Expected Output: ingest.py (load files/URLs), clean.py (BeautifulSoup for readability cleanup), chunker.py with chunk_text(text, chunk_size=256, overlap=64, min_tokens=50) returning chunks + metadata, and unit tests tests/test_chunker.py.
+- Verification: Print 5 random chunks & run tests to check no empty chunks, sentence boundary alignment, and overlap correctness. Assert that total chunk count is in expected range (50-2000).
 
-**Milestone 4 — Embedding and retrieval:**
+**Milestone 4 — Embedding & Retrieval:**
+- AI Tools: GitHub Copilot (in-editor coding), Claude (design prompting & QA), sentence-transformers (API embeddings), ChromaDB/FAISS (vector store).
+- Input to AI: planning.md Retrieval Approach, sample chunk JSON, and RAG Architecture png.
+- Expected Output: embedded.py (embedded chunks), index.py (push to vector DB with metadata), retrieve.py with retrieve(query, k_candidate=20, k_final=3), and rerank.py (cross-encoded or BM25 rewrite).
+- Verification: Run scripts/test_retrieval.py on 3 evaluation queries: Print top-k candidates & distances, compute recall@k/MRR, expect top distances < ~0.5 for good matches; inspect retrieved chunks manually. 
 
 **Milestone 5 — Generation and interface:**
+- AI Tools: GitHub Copilot (in-editor coding), Claude (design prompting & QA), Groq Wrapper
+- Input to AI: planning.md Grounding Rules, retrieve.py outputs, RAG Architecture png. 
+- Expected Output: query.py that composes a grounding prompt (e.g., context + strict instruction), calls the LLM, and returns answer + sources; app.py minimal Gradio UI & integration tests tests/test_end2end.py
+     - Example Grounding Prompt: "Use only provided context; if insufficient, say 'I don't have enough info'"
+- Verification: End-to-End tests for 2-3 queries; responses must cite source document names for grounding test & when out-of-scope, return the refusal phrase. Manually check at minimum one correct, one partial, one failure case & record in README.md. 
+
+**Note to Self (Delete Later): Commit Checkpoints**
+- Commit after each milestone with these files:
+     - Milestone 3: ingest.py, clean.py, chunker.py, tests/test_chunker.py, requirements.txt.
+     - Milestone 4: embed.py, index.py, retrieve.py, rerank.py, scripts/test_retrieval.py.
+     - Milestone 5: query.py, app.py, tests/test_end2end.py, README updates.
+- Add short CI/local test script to run unit + basic integration tests.
