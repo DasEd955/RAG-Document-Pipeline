@@ -52,37 +52,35 @@
      numbers fit the structure of your documents.
      A review-heavy corpus warrants different chunking than a long FAQ. -->
 
-**Chunk size:**
-- Default (Mixed Documents & Articles): 256 tokens per chunk.
-- Short Reviews & Forum Posts: 128 tokens per chunk.
+&emsp;Chunk size & overlap are chosen adaptively per document. We use the cleaned character length as a proxy for document type. Documents are not classified (i.e., forum post, article) explicitly; length is employed as a reliable substitute for the scope of this corpus. 
 
-**Overlap:**
-- Default (Mixed Documents & Articles): 64 tokens. 
-- Short Reviews & Forum Posts: 32 tokens. 
-- Minimum chunk: 50 tokens (merge with neighbor if below this threshold).
+**Chunk Size & Overlap:**
+
+| # | Document Length (Cleaned Chars) | Expected Content              | Chunk Size    | Overlap |
+| 1 | >4,000                          | News articles, long guides    | 256           | 64      |
+| 2 | 1,500-4,000                     | Forum threads, short articles | 192           | 48      |
+| 3 | <1,500                          | Single reviews, brief posts   | 128           | 32      |
+
+**Size Floor (Dual Mechanism):**
+ - Soft Target: When a Greedy-accumulated chunk is undersized, the chunker appends the next sentence before emitting, so chunks are not cut off prematurely.
+ - Hard Floor (50 Tokens): Any chunk still below 50 tokens is dropped & not embedded. This removes contentless fragments that would otherwise score deceptively high upon keyword overlap.   
 
 **Reasoning:**
-- Strategy: Implement a paragraph or sentence-first chunking with a token cap. 
-     - Preprocess: Remove boilerplate code, deduplicate repeated posts, normalize HTML/XML to avoid noisy chunks. 
-     - We will first split on semantic boundaries (headings, paragraphs, list items) and then sentence-tokenize each section. 
-     - Chunks will be built by greedily accumulating whole sentences until the token cap is reached. This preserves coherent assertions and avoids mid-sentence cuts.
-     - Edge Cases: Treat code/tables/quotes as separate chunks; keep short comments whole. 
+- Strategy (Sentence-First & Token Capped): Documents are cleaned, split into paragraphs, then sentence-tokenized. Chunks are built by Greedily accumulating whole sentences until the token cap is reached, which preserves coherent assetions & avoids mid-sentence cuts. A sentence longer than the cap is split token-wise as a fallback mechanism. 
 
-- Rationale for Sizes: 
-     - 256/64 chosen as default as 256 token chunks will preserve narrative & context in long articles, while 64 token overlap will ensure boundary facts remain intact.
-     - Longer news articles and guides will need larger chunks (256 tokens) to keep narrative and causal context intact. 
-     - Short, dense user posts & reviews will benefit from smaller chunks (128 tokens) to pinpoint specific claims and reduce noise.
+- Preprocessing: HTML is normalized with BeautifulSoup (i.e., scripts/nav/footer etc. removed). Residual inline boilerplate artifacts are then scrubbed from the body text (i.e., social media share buttons, reaction counts, relative timestamps, etc.). Phrases that are immediately repeated are collapsed, a paragraph info density filter drops low-value lines, and chunks that are exact duplicates are removed via a content hash. 
 
-- Overlap purpose: A 64-token overlap will ensure that facts near chunk boundaries appear intact in at least one chunk; a smaller 32-token overlap is sufficient for short posts.
+- Size Rationale: Longer documents get smaller chunks (256) to keep narrative & causal context intact. Shorter documents get smaller chunks (128) to pinpoint specific claims & reduce noise. The middle tier (192 tokens) keeps medium length documents from being forced to either extreme. 
 
-- Token-Based Sizing: Use the target tokenizer (e.g., `tiktoken` or the embedding model tokenizer) to measure tokens rather than characters
-     - Tokens map to model costs and context limits.
+- Overlap Purpose: A 64-token overlap ensures that facts near a chunk boundary will survive intact in at least one chunk. A 32-token boundary is employed sufficiently for shorter chunks. 
 
-- Metadata: save `doc_id`, `source`, `title`, `section_heading`, `chunk_index`, `token_span`, and `token_count` with every chunk to enable precise grounding and filtering.
+- Token Counting: Token counts are measured with tiktoken (cl100k_base), a BPE library, as a stable proxy. It should be noted that this is not the embedding model's exact tokenizer, so counts are approximate budgeting figures rather than exact model tokens. All caps (<256) stay comfortably within the embedding model's 384-token maximum sequence length. No chunk is silently truncated at embed time. 
 
-- Fallback/Emergency Mode: Only if tokenization tools are unavailable, we use a sliding window algorithm of 200 characters as a last-resort backup; prefer token counts whenever possible.
+- Fallback Mode: Only if tiktoken is unavailable, we fall back to crude whitespace word counts & word-based splitting. Tokens counts are preferred whenever available. 
 
-- Cost & Performance: Token-aware chunking allows us to control embedding costs & limit LLM context length while preserving semantics; paragraph-first logic reduces unnecessary duplicate chunks and improves attribution.
+- Metadata Logic: Each chunk record carries doc_id, source, chunk_index, char_span, token_span, and token_count. The fields pushed to the vector store are doc_id, source, chunk_index, char_span, and token_count, ensuring enough context for precise grounding & accurate source attribution. 
+
+- Cost & Performance: Heuristic token-aware chunking controls embedding cost & LLM context while preserving semantics. Paragraph-first logic & exact duplicate chunk removal reduces redundancy of chunks and improves attribution. 
 
 ---
 
