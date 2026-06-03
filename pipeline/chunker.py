@@ -8,6 +8,8 @@ except Exception:
     tiktoken = None
 
 # _get_encoding_obj(): Returns a tiktoken "encoding" object used for tokenization (encode/decode), or none if unavailable
+    # Tries to get the encoding based on the provided encoding name, or defaults to the encoding for "text-embedding-3-small" if no name is given 
+    # Falls back to "cl100k_base" if that fails, and returns None if tiktoken is not available or all attempts fail
 def _get_encoding_obj(encoding_name: Optional[str] = None) -> Any:
     if tiktoken is None:
         return None
@@ -94,6 +96,7 @@ class Chunker:
                                section_heading: Optional[str], start_index: int = 0,
                                chunk_size: Optional[int] = None, overlap: Optional[int] = None,
                                min_tokens: Optional[int] = None, encoding_name: Optional[str] = None) -> Generator[Dict, None, None]:
+        # Edge Cases & Defaults: Use provided params or fall back to instance defaults; get tokenizer encoding object if possible
         if chunk_size is None:
             chunk_size = self.chunk_size
         if overlap is None:
@@ -102,6 +105,7 @@ class Chunker:
             min_tokens = self.min_tokens
         enc = _get_encoding_obj(encoding_name or self.encoding_name)
 
+        # Helper to construct a chunk dict with all metadata
         def _make_chunk(chunk_text: str, token_start: int, token_end: int, char_start: int, char_end: int) -> Dict:
             return {
                 "doc_id": doc_id,
@@ -113,33 +117,38 @@ class Chunker:
                 "token_span": [token_start, token_end],
                 "char_span": [char_start, char_end],
             }
-
+        # Sentence Splitting & Token Counting: Split paragraph into sentences, get token counts and character spans for each sentence
         sentences = self.sentence_split(paragraph)
         if not sentences:
             return
-
+        # Get token counts for each sentence using the tokenizer if available, otherwise approximate with word counts; compute character spans of sentences within the paragraph
         sent_toks = self._sentence_token_counts(sentences, enc)
         sent_spans = self._sentence_char_spans(paragraph, sentences)
         cumulative = [0]
+        # Compute cumulative token counts to easily get token spans for sentence ranges; cumulative[i] gives the total tokens up to sentence i
         for t in sent_toks:
             cumulative.append(cumulative[-1] + t)
 
         n = len(sentences)
         i = 0
         idx = start_index
+        # Greedy Sentence Accumulation: Iterate through sentences, accumulating them into chunks until reaching the token limit; handle long sentences and overlap as needed
         while i < n:
             j = i
             tok_sum = 0
+            # Accumulate sentences until adding another would exceed the chunk_size token limit
             while j < n and tok_sum + sent_toks[j] <= chunk_size:
                 tok_sum += sent_toks[j]
                 j += 1
-
+            # If no sentences fit (i.e. a single sentence exceeds chunk_size), we will handle that case separately by splitting the long sentence token-wise
             if j == i:
                 s = sentences[i]
                 s_start, s_end = sent_spans[i]
+                # If we have a tokenizer encoding, split the long sentence into token-based chunks; otherwise, fall back to splitting by words
                 if enc is not None:
                     tokens = enc.encode(s)
                     w = 0
+                    # We will split the long sentence into chunks of chunk_size tokens, and compute the corresponding character spans for each chunk
                     while w < len(tokens):
                         slice_tokens = tokens[w: w + chunk_size]
                         chunk_text = enc.decode(slice_tokens)
@@ -147,17 +156,23 @@ class Chunker:
                         token_start = cumulative[i] + w
                         token_end = token_start + tcount
                         pos_in_sentence = s.find(chunk_text)
+                        # If the exact chunk text is not found in the sentence (which can happen due to tokenization quirks)
+                        # We will approximate the character position by scaling based on the ratio of tokens to sentence length
                         if pos_in_sentence == -1:
                             pos_in_sentence = int(len(s) * w / max(1, len(tokens)))
                         char_start = s_start + pos_in_sentence
                         char_end = char_start + len(chunk_text)
+                        # Yield the chunk with all metadata, then move to the next token slice
                         yield _make_chunk(chunk_text, token_start, token_end, char_start, char_end)
                         idx += 1
                         w += chunk_size
+                # If we don't have a tokenizer encoding, we will split the long sentence by words, creating chunks of approximately chunk_size words
+                # And compute character spans based on the position of the chunk text within the sentence
                 else:
                     words = s.split()
                     w = 0
                     approx_tokens = len(words)
+                    # If the sentence is very long in terms of words, we will create chunks of chunk_size words; otherwise, we will just yield the whole sentence as one chunk
                     while w < len(words):
                         take = min(len(words) - w, chunk_size)
                         chunk_words = words[w: w + take]
@@ -170,44 +185,53 @@ class Chunker:
                             pos_in_sentence = 0
                         char_start = s_start + pos_in_sentence
                         char_end = char_start + len(chunk_text)
+                        # Yield the chunk with all metadata, then move to the next word slice
                         yield _make_chunk(chunk_text, token_start, token_end, char_start, char_end)
                         idx += 1
                         w += take
+                # After handling the long sentence, we move to the next sentence    
                 i += 1
                 continue
-
+            
+            # For the normal case where we have accumulated one or more sentences that fit within the chunk_size token limit, we will create a chunk from sentences[i:j]
             chunk_text = " ".join(sentences[i:j])
             token_start = cumulative[i]
             token_end = cumulative[j]
             tok_count = token_end - token_start
 
+            # If the accumulated sentences are fewer than min_tokens, we will try to add more sentences until we reach at least min_tokens or run out of sentences
             if tok_count < min_tokens and j < n:
                 j += 1
                 chunk_text = " ".join(sentences[i:j])
                 token_end = cumulative[j]
                 tok_count = token_end - token_start
-
+            # If after trying to meet the min_tokens requirement we still have fewer tokens than min_tokens, we will just yield the chunk as is, since we don't want to create excessively large chunks
+                # This allows for some flexibility in chunk sizes while still trying to meet the minimum token requirement
             char_start = sent_spans[i][0]
             char_end = sent_spans[j - 1][1]
 
             yield _make_chunk(chunk_text, token_start, token_end, char_start, char_end)
             idx += 1
 
+            # Handle Overlap: If overlap is specified, we will move the starting index back by the appropriate number of sentences to create an overlap between chunks
+                # We calculate how many sentences to go back based on the token counts of the sentences
             if overlap and overlap > 0:
                 overlap_tokens = 0
                 k = 0
+                # We will move backwards from sentence j-1 to i, accumulating token counts until we reach the desired overlap token count, and set the next starting index accordingly
                 for s_idx in range(j - 1, i - 1, -1):
                     overlap_tokens += sent_toks[s_idx]
                     k += 1
                     if overlap_tokens >= overlap:
                         break
                 next_i = j - k if (j - k) > i else j
+            # If no overlap is specified, we simply move to the next sentence after j
             else:
                 next_i = j
-
+            # Move to the next starting sentence index for the next chunk
             i = next_i
     
-    # Materialize & return the list of chunks for a single paragraph
+    # chunk_paragraph: Materialize & return the list of chunks for a single paragraph
     def chunk_paragraph(self, paragraph: str, doc_id: str, source: str,
                         section_heading: Optional[str], start_index: int = 0,
                         chunk_size: Optional[int] = None, overlap: Optional[int] = None,
@@ -215,13 +239,13 @@ class Chunker:
         return list(self._iter_paragraph_chunks(paragraph, doc_id, source, section_heading, start_index,
                                                 chunk_size, overlap, min_tokens, encoding_name))
 
-    # Split text into paragraphs & produce chunks for each paragraph; supports streaming generator or full list
+    # chunk_text: Split text into paragraphs & produce chunks for each paragraph; supports streaming generator or full list
     def chunk_text(self, text: str, doc_id: str, source: str, section_heading: Optional[str] = None,
                    start_index: int = 0, chunk_size: Optional[int] = None, overlap: Optional[int] = None,
                    min_tokens: Optional[int] = None, encoding_name: Optional[str] = None,
                    stream: bool = False) -> Iterable[Dict]:
         paras = self.split_paragraphs(text)
-
+        # Generator function to yield chunks for all paragraphs, maintaining a global chunk index across paragraphs
         def gen():
             idx = start_index
             for para in paras:
@@ -229,10 +253,10 @@ class Chunker:
                                                       chunk_size, overlap, min_tokens, encoding_name):
                     yield ch
                     idx += 1
-
+        # Return a generator if streaming, otherwise materialize the full list of chunks
         if stream:
             return gen()
         return list(gen())
 
-
+# When importing * from this module, only expose the Chunker class
 __all__ = ["Chunker"]
