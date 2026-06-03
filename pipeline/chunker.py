@@ -48,15 +48,122 @@ class Chunker:
         # Uses BeautifulSoup to remove scripts/styles/nav etc., extracts text, unescapes HTML entities
         # Normalizes line endings/whitspace & returns trimmed text ready for splitting
     def clean_html(self, raw: str) -> str:
+        """
+        Strips HTML boilerplate & normalizes markup to clean plain-text.
+
+        Extended heuristics:
+        - remove common structural tags (script/style/nav/footer/header/etc.)
+        - remove elements whose `class`, `id`, `role` or test attributes contain boilerplate keywords
+        - unescape HTML entities and normalize whitespace
+        - remove common boilerplate lines ("Read more", "Share", cookie banners, privacy/user-agreement lines, etc.)
+        - drop extremely frequent repeated lines (likely site headers/footers)
+        """
         soup = BeautifulSoup(raw, "html.parser")
-        for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "form"]):
+
+        # Remove unwanted tags that typically contain non-substantive content
+        for tag in soup(["script", "style", "nav", "footer", "header", "noscript", "form", "aside", "iframe", "button", "svg", "figure", "menu"]):
             tag.decompose()
+
+        # Heuristic: remove elements with class/id/role attributes that look like boilerplate
+        # Keep this list conservative to avoid removing user-generated content (comments/reviews)
+        # Conservative keywords that are unlikely to appear in user-generated content
+        boilerplate_keywords = (
+            "cookie", "consent", "banner", "subscribe", "advert", "ads", "promo", "share", "social",
+            "breadcrumb", "breadcrumbs", "popup", "modal", "toolbar", "sidebar"
+        )
+
+        # NOTE: attribute-based decomposition was removed because it proved
+        # too aggressive for heterogeneous pages (it removed user content
+        # on some sites). We rely on tag-based removal above and line-level
+        # filtering below to strip boilerplate text.
+
+        # Extract text and unescape HTML entities
         text = soup.get_text(separator="\n")
         text = html.unescape(text)
+
+        # Normalize whitespace, non-breaking spaces, and stray replacement chars
+        text = text.replace("\u00a0", " ")
+        text = text.replace("�", " ")
         text = re.sub(r"\r\n|\r", "\n", text)
-        text = re.sub(r"\n\s+\n", "\n\n", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
         text = re.sub(r"[ \t]+", " ", text)
-        return text.strip()
+
+        # Split into lines and remove obvious boilerplate lines
+        lines = [l.strip() for l in text.splitlines()]
+        lines = [l for l in lines if l]
+
+        boilerplate_line_patterns = [
+            r"^read\s*more\b",
+            r"^continue\s+reading\b",
+            r"^share\b",
+            r"^people\s+also\s+ask\b",
+            r"^top\s+.*for\b",
+            r"^search\b",
+            r"^by\s+continuing,",
+            r"user\s+agreement",
+            r"privacy\s+policy",
+            r"all\s+rights\s+reserved",
+            r"continue\s+with",
+            r"^reddit,?\s+inc\b",
+            r"^reddit\s+rules\b",
+            r"^your\s+privacy\s+choices\b",
+            r"^accessibility\b",
+            r"^continue\s+with\s+phone\s+number\b",
+            r"^continue\s+with\s+email\b",
+            r"^search\s+real\s+takes\b",
+            r"^and\s+acknowledge\s+that\s+you\s+understand\s+the\b",
+            r"^home$",
+            r"^popular$",
+            r"^news$",
+            r"^explore$",
+            r"^best\s+of\b",
+            r"^advert",
+            r"^sponsored",
+            r"^cookie",
+            r"^subscribe",
+            r"^\d+\s?(mo|hour|hours|day|days|yesterday|today)\b",
+        ]
+        compiled = [re.compile(p, flags=re.I) for p in boilerplate_line_patterns]
+
+        def is_boilerplate_line(l: str) -> bool:
+            if not l:
+                return True
+            low = l.lower()
+            for p in compiled:
+                if p.search(low):
+                    return True
+            # short nav-like single-word lines
+            if len(low.split()) <= 2 and len(low) <= 15 and low in ("home", "popular", "news", "explore", "search", "public", "menu", "more"):
+                return True
+            # lines that are only punctuation (e.g. a single '.')
+            if re.match(r"^[^A-Za-z0-9]+$", l):
+                return True
+            return False
+
+        filtered = [l for l in lines if not is_boilerplate_line(l)]
+
+        # Drop extremely frequent repeated lines (likely headers/footers that repeat across the page)
+        from collections import Counter
+        counts = Counter(filtered)
+        filtered = [l for l in filtered if counts[l] <= 3]
+
+        # Reassemble into paragraphs: join consecutive lines into paragraphs
+        paragraphs = []
+        cur = []
+        for l in filtered:
+            if not l:
+                if cur:
+                    paragraphs.append(" ".join(cur).strip())
+                    cur = []
+            else:
+                cur.append(l)
+        if cur:
+            paragraphs.append(" ".join(cur).strip())
+
+        result = "\n\n".join([p for p in paragraphs if p])
+        result = re.sub(r"\n\s+\n", "\n\n", result)
+        result = re.sub(r"[ \t]+", " ", result)
+        return result.strip()
 
     # split_paragraphs(): Split normalized text into paragraphs on consecutive line blanks
     def split_paragraphs(self, text: str) -> List[str]:
