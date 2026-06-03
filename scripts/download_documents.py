@@ -5,18 +5,18 @@ import json
 import hashlib
 from pathlib import Path
 from urllib.parse import urlparse
-
 import requests
-
 try:
     from playwright.sync_api import sync_playwright
 except Exception:
     sync_playwright = None
 
-
+# extract_urls_from_markdown(): Function that takes a Path to a markdown file, reads its content, and uses a regex to extract and clean URLs
+    # Cleaning involves stripping trailing punctuation and ensuring uniqueness. It returns a list of unique URLs found in the markdown text.
+    # Returns a list of unique URLs found in the markdown text.
 def extract_urls_from_markdown(md_path: Path) -> list:
     text = md_path.read_text(encoding="utf-8")
-    # crude URL regex that skips trailing table delimiters
+    # Crude URL regex that skips trailing table delimiters
     found = re.findall(r"https?://[^\s)\]\|]+", text)
     cleaned = []
     seen = set()
@@ -27,7 +27,8 @@ def extract_urls_from_markdown(md_path: Path) -> list:
             cleaned.append(u)
     return cleaned
 
-
+# safe_filename(): Function that generates a safe filename for a given URL and index. 
+    # It parses the URL, extracts the netloc and last path segment, sanitizes them, and combines them with a hash of the URL to create a unique filename.
 def safe_filename(url: str, index: int) -> str:
     p = urlparse(url)
     netloc = p.netloc.replace(":", "_")
@@ -40,7 +41,8 @@ def safe_filename(url: str, index: int) -> str:
     filename = f"{index:02d}_{netloc}_{last}_{h}.html"
     return filename
 
-
+# fetch_with_requests(): Function that attempts to fetch a URL using the requests library, with specified headers, timeout, and retry logic.
+    # It returns a tuple indicating success, the response text (if successful), and the status code.
 def fetch_with_requests(url: str, headers: dict, timeout: int = 15, tries: int = 3):
     for attempt in range(1, tries + 1):
         try:
@@ -54,7 +56,9 @@ def fetch_with_requests(url: str, headers: dict, timeout: int = 15, tries: int =
         time.sleep(1)
     return False, None, None
 
-
+# fetch_with_playwright(): Function that attempts to fetch a URL using Playwright, with options for browser type, timeout, interactive mode, and user agent.
+    # It handles navigation, optional interactions (like clicking cookie consent buttons), and returns a tuple indicating success, the page content (if successful), and a status code (200 if content is retrieved, None otherwise). 
+    # It also includes error handling for Playwright operations.
 def fetch_with_playwright(url: str, browser_name: str = "chromium", timeout: int = 30,
                           interactive: bool = False, user_agent: str | None = None):
     if sync_playwright is None:
@@ -114,7 +118,9 @@ def fetch_with_playwright(url: str, browser_name: str = "chromium", timeout: int
         print(f"Playwright fetch error for {url}: {e}")
         return False, None, None
 
-
+# main(): Command-line interface function that parses arguments for input markdown file, output directory, timeout, retry attempts, user agent, and Playwright options.
+    # It extracts URLs from the specified markdown file, attempts to fetch each URL using requests (with optional fallback to Playwright)
+    # Saves the content to HTML files in the output directory, and records metadata about each fetch attempt in a JSON file. Finally, it prints a summary of the download results.
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--input", default="planning.md", help="Markdown file with URLs (planning.md)")
@@ -139,14 +145,16 @@ def main():
 
     headers = {"User-Agent": args.user_agent}
     results = []
+    # Iterate through the extracted URLs, attempt to fetch each one using requests (with optional fallback to Playwright)
+    # Save the content to HTML files, and record metadata about each fetch attempt.
     for i, url in enumerate(urls, start=1):
         print(f"Fetching ({i}/{len(urls)}): {url}")
         ok, body, status = fetch_with_requests(url, headers, timeout=args.timeout, tries=args.tries)
         if not ok and (args.use_playwright or args.playwright_interactive):
             print("Falling back to Playwright...")
             ok, body, status = fetch_with_playwright(url, browser_name=args.browser, timeout=args.timeout,
-                                                    interactive=args.playwright_interactive, user_agent=args.user_agent)
-
+                                                     interactive=args.playwright_interactive, user_agent=args.user_agent)
+        # Generate a safe filename for the URL, save the content if fetched successfully, and record the result in the metadata list.
         filename = safe_filename(url, i)
         out_path = out_dir / filename
         item = {"url": url, "file": str(out_path), "ok": ok, "status_code": status}
@@ -159,11 +167,12 @@ def main():
         results.append(item)
         time.sleep(args.sleep)
 
+    # Save the metadata about each fetch attempt to a JSON file in the output directory, and print a summary of the download results.
     meta_path = out_dir / "download_metadata.json"
     meta_path.write_text(json.dumps(results, indent=2), encoding="utf-8")
     ok_count = sum(1 for r in results if r.get("ok"))
     print(f"Downloaded {ok_count}/{len(results)} pages. Metadata: {meta_path}")
 
-
+# Entry point for the script
 if __name__ == "__main__":
     main()
