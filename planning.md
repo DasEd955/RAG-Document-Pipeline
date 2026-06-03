@@ -94,38 +94,40 @@
      support, accuracy on domain-specific text, latency? -->
 
 **Embedding Model:**
-- Default (Development): `text-embedding-3-small` or `all-MiniLM-L6-v2` (fast, inexpensive).
-- Higher Quality (Production): `text-embedding-3-large` (better nuance on noisy, paraphrased user text).
-     - Choose multilingual or domain-finetuned embeddings for future scalability.
-- Note: Use the embedding model's tokenizer (e.g., `tiktoken` family) to measure tokens for chunk budgeting.
-- Note: Choose tokenizer first & remap chunk sizes accordingly. 
+- `all-mpnet-base-v2` via `sequence-transformers`: Runs locally with no API key or rate limits, which keeps the project on a free stack. 768-dimensional, 384-token maximum sequence.
+- Chosen over the recommended `all-MiniLM-L6-v2` as it handles paraphrased, noisy, opinion-heavy user text better. In addition, its 384-token window leaves headroom over our specified 256-token chunk cap, whereas MiniLM's 256-token cap would sit right at the edge. 
+- Embeddings are L2-normalized & stored in a ChromaDB collection configured for cosine space, so that the returned distance equals `1 - cosine_similarity`.
+- A Model Consistency Guard records the embedding model name in the collection metadata & refuses to query an index that was built with a different model. This prevents silent dimension and/or space mismatches. 
+- Token counts for chunk budgeting use `tiktoken (cl100k_base)` as a proxy; this is not mpnet's tokenizer, so counts are approximate (reference Chunking Strategy).
 
 **Top-K Retrieval Counts:**
-- Candidate Retrieval: `k_candidate = 20` (fast semantic retrieval to build a candidate set).
+- Candidate Retrieval: `k_candidate = 20` (fast semantic recall to build a candidate set).
      - Note: Rerank with cross-encoder when precision is needed; this improves accuracy at the tradeoff of higher computing cost.
 - Rerank & pass `k_final = 3–5` to the generator: `k_final = 3` for longer (256 token) chunks; `k_final = 5` for shorter (128 token) chunks.
      -- This ensures for longer chunks, context is preserved; shorter chunks gain precision
 - Large aggregation or sentiment queries may need `k_final = 6–8`.
-- Note: Stop concatenating chunks when adding another would exceed the LLM token budget.
-     - Mathematically: sum(token_chunks) + prompt_tokens > model_context
+- Note: Stop concatenating chunks at generation time when adding another would exceed the LLM token budget.
+     - Mathematically: `sum(token_chunks) + prompt_tokens > model_context`
 
-**Retrieval strategy (Hybrid + Rerank):**
+**Retrieval strategy (Semantic Recall + Cross-Encoder Rerank):**
+- Semantic Recall: Cosine semantic search over mpnet embeddings returns the top `k_candidate = 20`.
+- Rerank: A lightweight cross-encoder `cross-encoder/ms-marco/MiniLM-L-6-v2` scores each `(query, chunk)` pair jointly & reorders the top candidates; the top-k_final are returned. This is the precision step & is the mechanism that correct cases where a short, keyword-dense chunk inaccurately outscores the true answer on raw cosine. 
 
-- Use hybrid approach; semantic search (embedding cosine) as the primary recall mechanism and BM25/keyword search to catch exact-entity matches (addresses, apartment names).
-- Rerank the top `k_candidate` with a lightweight cross-encoder or a BM25 + embedding re-weight matrix to improve precision.
-- Filter and prioritize by metadata (`source`, `date`, `rating`, `section_heading`) when the user requests it.
+**Planned Stretch (Not Implemented Yet)**:
+- Hybrid Search: Add BM25/keyword recall to catch exact entity matches (i.e., apartment names, addresses) that embeddings alone can miss, then fuse with the semantic candidates before reranking. 
+- Metadata Filtering: Filter/boost by `source` (implemented), and after extending extraction: by `date` and `rating`.
 
 **Production Tradeoffs & Reflection:**
 
-- If cost were no object, an embedding model that supports long context, multilingual text, domain finetuning for real-estate terms, and low-latency hosted or on-prem inference would be preferred.
-- Tradeoff Considerations: Accuracy vs. cost vs. latency vs. privacy (hosted API vs self-host).
+- If cost were no object, the preferred choice would be an embedding model with long context, multilingual support, domain fine-tuning for real estate specific terms, and low-latency hosted or on-prem inference (e.g., a hosted model such as `text-embedding-3-large`, or a model fine-tuned on housing & legal texts).
+- Tradeoff Considerations: Accuracy vs. cost vs. latency vs. privacy (hosted API vs self-host). A local model such as mpnet wins on privacy & cost; a hosted model may win on raw accuracy & maintenance burden.
 - Architecture Pattern: Cheap semantic index for recall + cross-encoder reranker for precision; cache embeddings and precompute reranks for popular queries.
 
-**Evaluation & tuning:**
+**Evaluation & Tuning (Planned):**
 
 - Experiment Grid: Chunk sizes (128, 256, 384) × `k_final` (3, 5, 8).
 - Metrics: `recall@k`, `MRR`, final-answer accuracy, hallucination rate, and latency/cost per query.
-- Logging: Store retrieved chunk ids and scores for each test query to analyze failures.
+- Current Verification is Manual: `scrips/query_documents.py ... --debug` prints the retrieved chunk text, distance, cosine similarity, and rerank score per query; `recall@k`/`MRR` are planned for the formal evaluation report. 
 
 ---
 
@@ -181,6 +183,13 @@
 
 ![RAG Architecture Diagram](RAG-Architecture.png)
 
+**Pipeline Stages:**
+1. Document Ingestion (`requests`/Playwright → local HTML) → 
+2. Chunking (`chunker.py`: `BeautifulSoup` cleaning + sentence-first, `tiktoken` counted chunks) → 
+3. Embedding + Vector Store (`all-mpnet-base-v2` via `sentence-transformers` →  `ChromaDB`, cosine space) ->
+4. Retrieval (cosine recall, top-20 → `cross-encoder/ms-marco-MiniLM-L-6-v2` rerank → top-k) → 
+5. Generation (Groq `llama-3.3-70b-versatile`, grounded prompt, `gradio` user interface)
+
 ---
 
 ## AI Tool Plan
@@ -197,20 +206,20 @@
 
 **Milestone 3 — Ingestion & Chunking:**
 - AI Tools: GitHub Copilot (in-editor coding), Claude (design prompting & QA).
-- Input to AI: planning.md Chunking Strategy, Documents List, RAG Architecture png, 2-3 Representative Raw Documents/Sample Corpus.
-- Expected Output: ingest.py (load files/URLs), clean.py (BeautifulSoup for readability cleanup), chunker.py with chunk_text(text, chunk_size=256, overlap=64, min_tokens=50) returning chunks + metadata, and unit tests tests/test_chunker.py.
+- Input to AI: `planning.md` Chunking Strategy, Documents List, RAG Architecture png, 2-3 Representative Raw Documents/Sample Corpus.
+- Expected Output: `scripts/fetch_documents.py` (load URLs → local HTML), `pipeline/chunker.py` (BeautifulSoup `clean_html` plus the sentence-first `chunk_text(...)` returning chunks + metadata), and `pipeline/ingest.py` + `scripts/chunk_documents.py` (orchestration, adaptive sizing, dedup, JSONL output). Cleaning lives inside `chunker.py` rather than a separate clean.py.
 - Verification: Print 5 random chunks & run tests to check no empty chunks, sentence boundary alignment, and overlap correctness. Assert that total chunk count is in expected range (50-2000).
 
 **Milestone 4 — Embedding & Retrieval:**
-- AI Tools: GitHub Copilot (in-editor coding), Claude (design prompting & QA), sentence-transformers (API embeddings), ChromaDB/FAISS (vector store).
-- Input to AI: planning.md Retrieval Approach, sample chunk JSON, and RAG Architecture png.
-- Expected Output: embedded.py (embedded chunks), index.py (push to vector DB with metadata), retrieve.py with retrieve(query, k_candidate=20, k_final=3), and rerank.py (cross-encoded or BM25 rewrite).
-- Verification: Run scripts/test_retrieval.py on 3 evaluation queries: Print top-k candidates & distances, compute recall@k/MRR, expect top distances < ~0.5 for good matches; inspect retrieved chunks manually. 
+- AI Tools: GitHub Copilot (in-editor coding), Claude (design prompting & QA), `sentence-transformers` (API embeddings), `ChromaDB`/`FAISS` (vector store).
+- Input to AI: `planning.md` Retrieval Approach, sample chunk JSON, and RAG Architecture png.
+- Expected Output: A single `pipeline/embeddings.py` `containing embed_and_index(...)` (embed + push to ChromaDB with metadata, cosine space, model-consistency guard) and `retrieve(...)` (cosine recall + cross-encoder rerank), `driven by scripts/embed_documents.py` and `scripts/query_documents.py`. Embedding, indexing, retrieval, and reranking are consolidated in one module rather than separate embed.py / index.py / retrieve.py / rerank.py files.
+- Verification: Run `scripts/query_documents.py` on 3 evaluation queries with `--debug`; inspect top-k chunks, distances, cosine similarity, and rerank scores; expect top cosine distances below ~0.5 for good matches. (`recall@k`/`MRR` planned for the evaluation report.)
 
 **Milestone 5 — Generation and interface:**
 - AI Tools: GitHub Copilot (in-editor coding), Claude (design prompting & QA), Groq Wrapper
-- Input to AI: planning.md Grounding Rules, retrieve.py outputs, RAG Architecture png. 
-- Expected Output: query.py that composes a grounding prompt (e.g., context + strict instruction), calls the LLM, and returns answer + sources; app.py minimal Gradio UI & integration tests tests/test_end2end.py
+- Input to AI: `planning.md` Grounding Rules, `retrieve(...)` outputs, RAG Architecture png. 
+- Expected Output: a `query.py` that composes a grounding prompt (e.g., context + strict instruction), calls the LLM, and returns answer + sources; app.py minimal Gradio UI & integration tests tests/test_end2end.py
      - Example Grounding Prompt: "Use only provided context; if insufficient, say 'I don't have enough info'"
 - Verification: End-to-End tests for 2-3 queries; responses must cite source document names for grounding test & when out-of-scope, return the refusal phrase. Manually check at minimum one correct, one partial, one failure case & record in README.md. 
 
