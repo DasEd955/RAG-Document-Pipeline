@@ -1,0 +1,15 @@
+Regenerate Chunks:
+
+python -m pipeline.ingest --docs_dir documents --out chunks.jsonl
+
+Count Chunks: 
+
+(Get-Content chunks.jsonl | Measure-Object -Line).Lines
+
+Embed Chunks into ChromaDB: 
+
+python scripts/chunk_documents.py --docs_dir documents --out chunks.jsonl
+
+Test Query:
+
+python scripts/query_documents.py "Do you have to act fast to get off-campus housing at Penn State?" --k 5 --debug

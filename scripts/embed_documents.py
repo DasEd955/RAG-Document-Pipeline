@@ -9,7 +9,7 @@ def main():
     p.add_argument("--chunks", default="chunks.jsonl", help="Input chunks JSONL")
     p.add_argument("--persist_dir", default="chroma_db", help="ChromaDB persist directory")
     p.add_argument("--collection", default="documents", help="Chroma collection name")
-    p.add_argument("--model", default="all-MiniLM-L6-v2", help="Sentence-Transformers model")
+    p.add_argument("--model", default="all-mpnet-base-v2", help="Sentence-Transformers model")
     p.add_argument("--batch_size", type=int, default=128)
     p.add_argument("--overwrite", action="store_true", help="Delete and recreate collection if it exists")
     args = p.parse_args()

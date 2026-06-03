@@ -11,9 +11,9 @@ def main():
     # Optional flags (preferred)
     p.add_argument("--docs_dir", dest="docs_dir_opt", default=None, help="Directory with source documents")
     p.add_argument("--out", dest="out_opt", default=None, help="Output JSONL path")
-    p.add_argument("--chunk_size", type=int, default=256)
-    p.add_argument("--overlap", type=int, default=64)
-    p.add_argument("--min_tokens", type=int, default=50)
+    p.add_argument("--chunk_size", type=int, default=512)
+    p.add_argument("--overlap", type=int, default=128)
+    p.add_argument("--min_tokens", type=int, default=100)
     p.add_argument("--encoding", default=None)
     args = p.parse_args()
     # Determine the document directory and output path based on optional arguments (preferred) or fallback to positional arguments
