@@ -57,6 +57,7 @@
 **Chunk Size & Overlap:**
 
 | # | Document Length (Cleaned Chars) | Expected Content              | Chunk Size    | Overlap |
+|---|---------------------------------|-------------------------------|---------------|---------|
 | 1 | >4,000                          | News articles, long guides    | 256           | 64      |
 | 2 | 1,500-4,000                     | Forum threads, short articles | 192           | 48      |
 | 3 | <1,500                          | Single reviews, brief posts   | 128           | 32      |
