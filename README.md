@@ -147,9 +147,9 @@
      Do not just say "I told it to use the documents" — show the actual instruction or explain
      the mechanism. -->
 
-**System prompt grounding instruction:**
+**System Prompt Grounding Instruction:**
 - The system prompt enforces hard grounding by providing the LLM with a numbered set of retrieved context passages. It instructs the model repeatedly to answer ONLY from those passages, to never use outside knowledge or invent facts, and to reply with the refusal phrase "`I don't have enough information in the loaded documents to answer that.`" when passages do not provide sufficient context. 
-- System Prompt: <br><br>"You are a grounded question-answering assistant for off-campus student housing near Penn State / State College, PA. You will be given a user question and a set of numbered context passages retrieved from a fixed corpus of forum posts, reviews, news articles, and official guides. You must obey ALL of the following rules:
+- **System Prompt**: <br><br>"You are a grounded question-answering assistant for off-campus student housing near Penn State / State College, PA. You will be given a user question and a set of numbered context passages retrieved from a fixed corpus of forum posts, reviews, news articles, and official guides. You must obey ALL of the following rules:
 
      1. Answer using ONLY the information contained in the numbered context passages below. The passages are your single source of truth.
      2. Do NOT use any outside or prior knowledge. Do NOT guess, extrapolate, or add any fact that is not explicitly supported by the passages.
@@ -163,7 +163,7 @@
 - The prompt also requires the model to cite passage numbers with square bracket notation (e.g. `[1] www.sourceurl.com`), allowing for a clean text output while providing robust grounding verification. 
 "
 
-**How source attribution is surfaced in the response:**
+**How Source Attribution is Surfaced in the Response:**
 - Source attribution is built programatically from the retrieved chunk metadata & never parsed from model output. 
 - Source attribution is cited as numbered passages with square bracket notation (e.g. `[1] www.sourceurl.com`).
 - These sources are passed to the model with a separately constructed sources list mapping each [n] marker to a canonical source & similarity score. 
@@ -219,9 +219,14 @@
 <!-- Reflect on how planning.md shaped your implementation.
      Answer both questions with at least 2–3 sentences each. -->
 
-**One way the spec helped you during implementation:**
+**One Way the Spec Helped You During Implementation:**
+- This spec enforced explicit grounding constraints up-front, including numbered context, canonical refusal methods, and temperature pinned to 0.
+- This helped make design decisions significantly more straightforward & modular: short-circuit upon empty retrieval, build source lists programmatically, and verify end-to-end tests. 
+- It also specified retrieval/rerank roles & metadata fields which let to a clear, classical RAG pipeline architecture: chunks -> embeddings -> retrieve -> prompt -> generate -> UI. 
 
-**One way your implementation diverged from the spec, and why:**
+**One Way Your Implementation Diverged From the Spec, and Why:**
+- Implemented programmatic fallback: Cross-Encoder reranking is optional if sentence-transformers is not installed, with a tradeoff of accuracy. The embed/index defaults differ slightly between function defaults & higher-level configurations.
+- This was implemented intentionally to keep the repository runnable in constrained development environments, and to support the higher quality `mpnet-base-v2` index for embedding. 
 
 ---
 
