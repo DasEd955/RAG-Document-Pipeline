@@ -6,7 +6,7 @@ from pipeline.embeddings import embed_and_index
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--chunks", default="chunks.jsonl", help="Input chunks JSONL")
+    p.add_argument("--chunks", default="chunks/chunks.jsonl", help="Input chunks JSONL")
     p.add_argument("--persist_dir", default="chroma_db", help="ChromaDB persist directory")
     p.add_argument("--collection", default="documents", help="Chroma collection name")
     p.add_argument("--model", default="all-mpnet-base-v2", help="Sentence-Transformers model")

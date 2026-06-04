@@ -6,9 +6,18 @@ query.ask(); this module only renders the answer and the programmatically-built
 source list. The "Retrieved from" box is populated from result["sources"], which
 query.py derives from chunk metadata — it is never parsed from the model output.
 """
+import os
+import sys
+
 import gradio as gr
 
-from query import ask
+# Make the project root importable so `app.query` (and `pipeline`) resolve whether
+# launched as `python app/app.py` or `python -m app.app` from the repo root.
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
+from app.query import ask
 
 
 def handle_query(question: str):

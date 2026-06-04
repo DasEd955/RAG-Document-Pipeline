@@ -12,8 +12,7 @@ env/
 
 # Documents & Generated Chunks
 documents/
-chunks.jsonl
-analysis_results.json
+chunks/
 
 # Jupyter
 .ipynb_checkpoints/

@@ -22,9 +22,16 @@ llama-3.3-70b-versatile.
 """
 import os
 import re
+import sys
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+# Ensure the project root (parent of app/) is importable, so `pipeline` resolves
+# whether this is run as `python app/query.py`, `python -m app.query`, or imported.
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
 
 from pipeline.embeddings import retrieve
 
@@ -94,7 +101,9 @@ _REFUSAL_CORE = re.sub(r"[^a-z ]", "", REFUSAL_PHRASE.lower()).strip()
 _URL_LOOKUP_CACHE: Optional[Dict[str, Dict[str, str]]] = None
 
 
-def _load_url_lookup(metadata_path: str = "documents/download_metadata.json") -> Dict[str, Dict[str, str]]:
+def _load_url_lookup(metadata_path: Optional[str] = None) -> Dict[str, Dict[str, str]]:
+    if metadata_path is None:
+        metadata_path = os.path.join(_ROOT, "documents", "download_metadata.json")
     global _URL_LOOKUP_CACHE
     if _URL_LOOKUP_CACHE is not None:
         return _URL_LOOKUP_CACHE

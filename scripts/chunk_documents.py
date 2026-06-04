@@ -7,7 +7,7 @@ def main():
     p = argparse.ArgumentParser()
     # Positional (kept for compatibility)
     p.add_argument("docs_dir_pos", nargs="?", default="documents", help="Positional docs dir (kept for compatibility)")
-    p.add_argument("out_pos", nargs="?", default="chunks.jsonl", help="Positional out path (kept for compatibility)")
+    p.add_argument("out_pos", nargs="?", default="chunks/chunks.jsonl", help="Positional out path (kept for compatibility)")
     # Optional flags (preferred)
     p.add_argument("--docs_dir", dest="docs_dir_opt", default=None, help="Directory with source documents")
     p.add_argument("--out", dest="out_opt", default=None, help="Output JSONL path")

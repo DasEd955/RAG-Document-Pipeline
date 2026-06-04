@@ -99,7 +99,7 @@ def ingest_and_chunk(docs_dir: str, out_path: str, chunk_size: int = 512,
 def _cli():
     p = argparse.ArgumentParser()
     p.add_argument("--docs_dir", default="documents", help="Directory with source documents")
-    p.add_argument("--out", default="chunks.jsonl", help="Output JSONL path")
+    p.add_argument("--out", default="chunks/chunks.jsonl", help="Output JSONL path")
     p.add_argument("--chunk_size", type=int, default=512)
     p.add_argument("--overlap", type=int, default=128)
     p.add_argument("--min_tokens", type=int, default=100, help="Soft target chunk size (chunker)")

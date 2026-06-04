@@ -122,7 +122,7 @@ def ensure_client(persist_dir: str = "chroma_db"):
 
 # ---- indexing ----------------------------------------------------------------
 def embed_and_index(
-    chunks_jsonl: str = "chunks.jsonl",
+    chunks_jsonl: str = "chunks/chunks.jsonl",
     persist_dir: str = "chroma_db",
     collection_name: str = "documents",
     model_name: str = "all-MiniLM-L6-v2",
