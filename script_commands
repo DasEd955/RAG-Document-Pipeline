@@ -1,15 +1,21 @@
 Regenerate Chunks:
 
-python -m pipeline.ingest --docs_dir documents --out chunks.jsonl
+python -m pipeline.ingest --docs_dir documents --out chunks/chunks.jsonl
 
-Count Chunks: 
+Count Chunks:
 
-(Get-Content chunks.jsonl | Measure-Object -Line).Lines
+(Get-Content chunks/chunks.jsonl | Measure-Object -Line).Lines
 
-Embed Chunks into ChromaDB: 
+Embed Chunks into ChromaDB:
 
-python scripts/chunk_documents.py --docs_dir documents --out chunks.jsonl
+python scripts/embed_documents.py --chunks chunks/chunks.jsonl --overwrite
+    Note: the old command was calling chunk_documents.py (the chunker) — the correct embed script is embed_documents.py.
 
 Test Query:
 
 python scripts/query_documents.py "Do you have to act fast to get off-campus housing at Penn State?" --k 5 --debug
+    No change here — query_documents.py has no path defaults, it talks directly to ChromaDB.
+
+Launch the app:
+
+python -m app.app

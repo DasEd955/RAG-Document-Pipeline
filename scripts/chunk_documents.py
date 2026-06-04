@@ -1,4 +1,9 @@
 import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from pipeline.ingest import ingest_and_chunk
 
 # main(): Command-line interface function that supports both positional and optional arguments for document directory and output path, along with chunking parameters and encoding. 

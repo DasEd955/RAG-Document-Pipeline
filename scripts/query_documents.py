@@ -2,6 +2,11 @@
 """CLI: quick retrieval against the ChromaDB index created by `embed_documents.py`."""
 import argparse
 import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from pipeline.embeddings import retrieve
 
 

@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """CLI: embed chunks.jsonl into ChromaDB using the project's embedding pipeline."""
 import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from pipeline.embeddings import embed_and_index
 
 

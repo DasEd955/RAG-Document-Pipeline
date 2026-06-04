@@ -42,6 +42,7 @@
 | 8 | Facebook            |      Group Post       | https://www.facebook.com/groups/669735056706459/posts/2600632426950036/ |
 | 9 | Reddit              |    Forum Post         | https://www.reddit.com/r/PennStateUniversity/comments/1i2u740/off_campus_housing/ |
 | 10 | Reddit             |    Forum Post         | https://www.reddit.com/r/PennStateUniversity/comments/1jzuq7t/reviews_on_these_offcampus_apartments/ |
+| 11 | Reddit             |    Forum Post         | https://www.reddit.com/r/PennStateUniversity/comments/hglm4y/worst_landlord_in_town/ |
 
 ---
 
