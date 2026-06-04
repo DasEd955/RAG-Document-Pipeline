@@ -243,12 +243,12 @@
 
 **Instance 1**
 
-- *What I gave the AI:*
-- *What it produced:*
-- *What I changed or overrode:*
+- *What I gave the AI:* A docstring template & all Python files in the repository (function signatures + desired style rules). I asked the model to generate comprehensive docstrings for every function: short summary, args, returns, raises, and a short example. This served a dual purpose: best practices in SWE/ML Engineering, and for conceptual explanation from an educational standpoint for unfamiliar library mechanics. 
+- *What it produced:* Draft docstrings for functions across the codebase following the provided template.
+- *What I changed or overrode:* I removed overly-robotic phrasing, standardized punctation (e.g., removing em-dashes), fixed capitalization, and corrected a few imprecise edge cases the model made. I harmonized wording across modules to a consistent voice. 
 
 **Instance 2**
 
-- *What I gave the AI:*
-- *What it produced:*
-- *What I changed or overrode:*
+- *What I gave the AI:* The original `chunker.py` module implementation & the chunking spec from `planning.md`. I prompted the model via explaining the evident performance issue (multiple nested while loops, near-quadratic worst-case time complexity), and asked for a refractored Greedy algorithm chunk accumulation approach with optimized complexity. 
+- *What it produced:* A refractored algorithm schema & code suggestions that flattened loop structure into a single-pass Greedy accumulator, plus notes on complexity, edge cases, and suggested unit checks (specified by the prompt for conceptual understanding).
+- *What I changed or overrode:* Integrated the suggested algorithm into the repository. Renamed variables for clarity, preserved fallback behavior (sentence-first + hard floor), and defined a nested helper function for yielding chunks. Verified the optimized Greedy algorithm replaced the nested loops while keeping outputs as expected. 
