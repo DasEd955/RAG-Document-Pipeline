@@ -204,13 +204,20 @@
      "The embedding model treated the professor's nickname as out-of-vocabulary and returned
      results from an unrelated review" is an explanation. -->
 
-**Question that failed:**
+**Question That Failed:**
+- `"Has Hendricks Investments been reported to enter units without notice?"`
 
-**What the system returned:**
+**What the System Returned:**
+- The system returned the refusal phrase, despite the fact that the corpus contains 2 adjacent sentences that state the claim cumulatively (one naming Hendricks, the next describing unauthorized entry). However, retrieval returned only one piece of the 2 fragments, so the LLM could not produce a grounded assetion.  
 
 **Root cause (tied to a specific pipeline stage):**
+- The chunking algorithm split a single factual claim across a boundary. As a result, the sentence tokenizer/HTML cleaning produced 2 chunks where the claim requires both. Retrieval returned a top-k that included only one of the fragments; the reranker scored fragments independently, so the LLM lacked the joined context. In summary, this is due to a combination of chunk boundary & candidate selection gap. 
 
 **What you would change to fix it:**
+- Increase overlap or adjust Greedy accumulation algorithm for medium/long documents so that sentence-spanning facts stay in at least one chunk. 
+- Post-Retrieval: If top-k contains adjacent chunks from the same document, merge them (or include the nearest neighbor), before building the numbered context. 
+- Add a lightweight BM25/phrase-match pass to the candidate pool to surface matching phrase neighbors, then rerank. 
+- Add a unit test that constructs a synthetic document whose key fact is split across chunks, then assert that the system returns a grounded citation; used to verify the patch. 
 
 ---
 
