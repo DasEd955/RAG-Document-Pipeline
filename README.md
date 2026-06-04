@@ -148,8 +148,29 @@
      the mechanism. -->
 
 **System prompt grounding instruction:**
+- The system prompt enforces hard grounding by providing the LLM with a numbered set of retrieved context passages. It instructs the model repeatedly to answer ONLY from those passages, to never use outside knowledge or invent facts, and to reply with the refusal phrase "`I don't have enough information in the loaded documents to answer that.`" when passages do not provide sufficient context. 
+- System Prompt: <br><br>"You are a grounded question-answering assistant for off-campus student housing near Penn State / State College, PA.
+
+You will be given a user question and a set of numbered context passages retrieved from a fixed corpus of forum posts, reviews, news articles, and official guides. You must obey ALL of the following rules:
+
+1. Answer using ONLY the information contained in the numbered context passages below. The passages are your single source of truth.
+2. Do NOT use any outside or prior knowledge. Do NOT guess, extrapolate, or add any fact that is not explicitly supported by the passages.
+3. If the passages do not contain enough information to answer the question, you MUST reply with this exact sentence and nothing else:
+{refusal}
+4. When you state a fact, cite the passage number(s) it came from using square-bracket markers, e.g. [1] or [2][3]. Only ever use the [n] markers that appear in the context — never invent source names, URLs, dates, or numbers.
+5. Be concise and factual. Prefer the wording and sentiment actually expressed in the passages over your own phrasing.
+
+Context passages:
+{context}"
+- The prompt also requires the model to cite passage numbers with square bracket notation (e.g. `[1] www.sourceurl.com`), allowing for a clean text output while providing robust grounding verification. 
+"
 
 **How source attribution is surfaced in the response:**
+- Source attribution is built programatically from the retrieved chunk metadata & never parsed from model output. 
+- Source attribution is cited as numbered passages with square bracket notation (e.g. `[1] www.sourceurl.com`).
+- These sources are passed to the model with a separately constructed sources list mapping each [n] marker to a canonical source & similarity score. 
+- If retrieval returns no results, we refuse without calling the LLM.
+- If the model emits the canonical refusal phrase, we supress sources. This guarantees that citations cannot be hallucinated or omitted by the model. 
 
 ---
 
