@@ -1,20 +1,16 @@
-"""
-End-to-end tests for Stage 5 (generation + attribution).
+"""test_end2end.py - End-to-end tests for Stage 5 (generation + source attribution).
 
-These do NOT hit ChromaDB or the Groq API. We monkeypatch:
-  - query.retrieve   -> deterministic fake retrieval results
-  - query._generate  -> deterministic fake LLM output
+Tests isolation strategy: monkeypatch retrieve() and _generate() to use
+deterministic fake data (no ChromaDB or Groq API calls needed). Assertions
+verify the two core grounding guarantees:
 
-That isolation lets us assert the two guarantees the pipeline promises,
-independent of model behaviour or network:
+  1. Grounding is structurally enforced: empty retrieval refuses without calling
+     the LLM; model refusals are detected and normalized.
+  2. Source attribution is programmatic: the "sources" list is built from chunk
+     metadata in ask(), not parsed from model output — so it persists even when
+     the model omits citations, and is suppressed on refusal.
 
-  1. Grounding is enforced structurally: empty retrieval refuses WITHOUT
-     calling the LLM, and a model refusal is detected and normalized.
-  2. Source attribution is programmatic: the "sources" list is built from
-     chunk metadata, not parsed from the model's text — so it is present even
-     when the model output contains no citations, and absent on a refusal.
-
-Run from the project root:  python -m pytest tests/test_end2end.py -q
+Run from project root: python -m pytest tests/test_end2end.py -q
 """
 import os
 import sys
@@ -24,8 +20,14 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from app import query
 
 
-# ---- fixtures / helpers ------------------------------------------------------
-def _fake_results():
+# ---- Fixtures / Helpers ------------------------------------------------------
+def _fake_results() -> list:
+    """Return mock retrieval results for testing.
+
+    Returns:
+        list: A list of 2 fake result dicts with metadata, document text, and
+              cosine similarity scores.
+    """
     return [
         {
             "id": "doc1__0",
@@ -51,11 +53,27 @@ def _fake_results():
     ]
 
 
-def _patch_retrieval(monkeypatch, results):
+def _patch_retrieval(monkeypatch, results: list) -> None:
+    """Monkeypatch query.retrieve to return deterministic results.
+
+    Args:
+        monkeypatch: pytest fixture for patching.
+        results (list): Fake results to return from retrieve().
+    """
     monkeypatch.setattr(query, "retrieve", lambda *a, **k: {"query": "q", "results": results, "reranked": True})
 
 
-def _patch_llm(monkeypatch, output):
+def _patch_llm(monkeypatch, output: str) -> dict:
+    """Monkeypatch query._generate to return a fixed string and capture call args.
+
+    Args:
+        monkeypatch: pytest fixture for patching.
+        output (str): The fake LLM response to return.
+
+    Returns:
+        dict: A dict that will be populated with captured call arguments:
+              messages, llm_model, temperature.
+    """
     captured = {}
 
     def fake_generate(messages, llm_model, max_tokens, temperature):
@@ -68,8 +86,14 @@ def _patch_llm(monkeypatch, output):
     return captured
 
 
-# ---- tests -------------------------------------------------------------------
-def test_empty_retrieval_refuses_without_calling_llm(monkeypatch):
+# ---- Tests -------------------------------------------------------------------
+def test_empty_retrieval_refuses_without_calling_llm(monkeypatch) -> None:
+    """Verify that empty retrieval refuses without calling the LLM.
+
+    If ChromaDB returns no results, ask() must return the refusal phrase
+    immediately without invoking the generation model. This prevents the
+    model from hallucinating an answer when there is no grounding context.
+    """
     _patch_retrieval(monkeypatch, [])
 
     def boom(*a, **k):
@@ -83,7 +107,13 @@ def test_empty_retrieval_refuses_without_calling_llm(monkeypatch):
     assert "couldn't find anything relevant" in res["answer"].lower()
 
 
-def test_sources_are_programmatic_not_from_model(monkeypatch):
+def test_sources_are_programmatic_not_from_model(monkeypatch) -> None:
+    """Verify that sources are built from metadata, not parsed from model output.
+
+    Even if the mocked LLM emits zero citations, result["sources"] must still
+    contain the full source list, built purely from chunk metadata. This proves
+    source attribution is guaranteed programmatically, not delegated to the LLM.
+    """
     # Model output contains NO citations at all...
     _patch_retrieval(monkeypatch, _fake_results())
     _patch_llm(monkeypatch, "Students strongly advise avoiding Hendricks Investments.")
@@ -100,7 +130,13 @@ def test_sources_are_programmatic_not_from_model(monkeypatch):
     assert res["sources"][1].startswith("[2]")
 
 
-def test_model_refusal_is_detected_and_sources_suppressed(monkeypatch):
+def test_model_refusal_is_detected_and_sources_suppressed(monkeypatch) -> None:
+    """Verify that model refusals are detected and sources are suppressed.
+
+    If the LLM emits the canonical refusal phrase, ask() must return
+    grounded=False and an empty sources list. There is no grounded claim to
+    attribute, so attribution would be misleading.
+    """
     _patch_retrieval(monkeypatch, _fake_results())
     # Model emits (a paraphrase of) the refusal phrase.
     _patch_llm(monkeypatch, query.REFUSAL_PHRASE)
@@ -111,7 +147,12 @@ def test_model_refusal_is_detected_and_sources_suppressed(monkeypatch):
     assert res["answer"] == query.REFUSAL_PHRASE
 
 
-def test_grounding_constraints_present_in_system_prompt(monkeypatch):
+def test_grounding_constraints_present_in_system_prompt(monkeypatch) -> None:
+    """Verify that the system prompt enforces grounding constraints.
+
+    The system prompt must contain hard language (ONLY, must NOT), the refusal
+    phrase, numbered context, and temperature must be pinned to 0 for determinism.
+    """
     _patch_retrieval(monkeypatch, _fake_results())
     captured = _patch_llm(monkeypatch, "Downtown is reportedly expensive [1].")
 
@@ -129,7 +170,12 @@ def test_grounding_constraints_present_in_system_prompt(monkeypatch):
     assert captured["llm_model"] == "llama-3.3-70b-versatile"
 
 
-def test_blank_question_short_circuits(monkeypatch):
+def test_blank_question_short_circuits(monkeypatch) -> None:
+    """Verify that blank/whitespace-only questions are rejected early.
+
+    ask() must validate input and refuse to call retrieve() or generate()
+    on empty questions. This is a basic input sanity check.
+    """
     def boom(*a, **k):
         raise AssertionError("retrieve must not run for a blank question")
 

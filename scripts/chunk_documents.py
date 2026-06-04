@@ -1,3 +1,8 @@
+"""chunk_document.py - CLI wrapper for document ingestion and chunking.
+
+Provides a command-line interface to ingest_and_chunk with both positional
+(legacy) and optional flag arguments.
+"""
 import argparse
 import os
 import sys
@@ -6,9 +11,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pipeline.ingest import ingest_and_chunk
 
-# main(): Command-line interface function that supports both positional and optional arguments for document directory and output path, along with chunking parameters and encoding. 
-    # It calls the ingest_and_chunk function and prints the total number of chunks created.
-def main():
+
+def main() -> None:
+    """Parse arguments and run the chunking pipeline.
+
+    Supports both positional arguments (for legacy compatibility) and optional
+    flags (--docs_dir, --out, etc.). Optional flags take precedence over positionals.
+    """
     p = argparse.ArgumentParser()
     # Positional (kept for compatibility)
     p.add_argument("docs_dir_pos", nargs="?", default="documents", help="Positional docs dir (kept for compatibility)")

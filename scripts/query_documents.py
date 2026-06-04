@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""CLI: quick retrieval against the ChromaDB index created by `embed_documents.py`."""
+"""query_documents.py - CLI for querying retrieved chunks from ChromaDB.
+
+Performs semantic search and optional cross-encoder reranking against the indexed
+chunks, printing results in JSON or human-readable debug format.
+"""
 import argparse
 import json
 import os
@@ -10,7 +14,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pipeline.embeddings import retrieve
 
 
-def main():
+def main() -> None:
+    """Parse query and retrieve arguments, then print results.
+
+    Accepts a query string and optional flags for retrieval parameters (k, model,
+    persist_dir, etc.). Supports --debug for human-readable output with full chunk
+    text, metadata, and cosine similarity scores.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("query", help="User query string")
     p.add_argument("--persist_dir", default="chroma_db", help="ChromaDB persist directory")
@@ -42,7 +52,7 @@ def main():
             print("\nFull chunk text:\n")
             print(doc)
             # Flag weak matches
-            # Heuristics: warn on weak matches
+            # Heuristics: Warn on weak matches
             try:
                 if cos is not None:
                     if float(cos) < 0.7:

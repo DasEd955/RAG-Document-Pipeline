@@ -1,5 +1,5 @@
 """
-Embedding + retrieval over ChromaDB using Sentence-Transformers.
+Embeddings.py - Embedding + retrieval over ChromaDB using Sentence-Transformers.
 
 Public API (positional call order preserved so existing CLIs keep working):
     embed_and_index(chunks_jsonl, persist_dir, collection_name, model_name, batch_size, overwrite)
@@ -23,17 +23,20 @@ from pathlib import Path
 from typing import Iterable, Dict, Any, List, Optional
 import json
 
-# ---- optional / lazy imports -------------------------------------------------
+# ---- Optional / Lazy Imports -------------------------------------------------
 SentenceTransformer = None
 CrossEncoder = None
 chromadb = None
 np = None
 
 
-def _lazy_imports():
-    # Every name assigned here MUST be declared global. The original bug was
-    # omitting CrossEncoder from this list, which made the import a discarded
-    # local and silently disabled all reranking.
+def _lazy_imports() -> None:
+    """Import optional dependencies at runtime, setting global module handles.
+
+    Imports SentenceTransformer, CrossEncoder, chromadb, and numpy. Each import
+    is wrapped in a try-except to gracefully degrade if dependencies are missing.
+    Every global must be declared before assignment to avoid local shadowing.
+    """
     global SentenceTransformer, CrossEncoder, chromadb, np
     try:
         from sentence_transformers import SentenceTransformer as _ST
@@ -59,13 +62,27 @@ def _lazy_imports():
 
 _lazy_imports()
 
-# ---- model caching (load each model once per process) ------------------------
+# ---- Model Caching (Load Each Model Once per Process) ------------------------
 _MODEL_CACHE: Dict[str, Any] = {}
 _RERANKER_CACHE: Dict[str, Any] = {}
 _DEFAULT_RERANKER = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
 
-def _get_model(model_name: str):
+def _get_model(model_name: str) -> Any:
+    """Load or retrieve a cached embedding model by name.
+
+    Models are cached in _MODEL_CACHE so repeated calls return the same instance
+    without reloading.
+
+    Args:
+        model_name (str): Hugging Face model identifier (e.g., "all-mpnet-base-v2").
+
+    Returns:
+        Any: A SentenceTransformer model instance.
+
+    Raises:
+        RuntimeError: If sentence-transformers is not installed.
+    """
     if SentenceTransformer is None:
         raise RuntimeError("sentence-transformers not installed: pip install sentence-transformers")
     if model_name not in _MODEL_CACHE:
@@ -73,8 +90,19 @@ def _get_model(model_name: str):
     return _MODEL_CACHE[model_name]
 
 
-def _get_reranker(name: str = _DEFAULT_RERANKER):
-    """Return a cached CrossEncoder, or None if the dependency is unavailable."""
+def _get_reranker(name: str = _DEFAULT_RERANKER) -> Optional[Any]:
+    """Load or retrieve a cached cross-encoder reranking model.
+
+    The cross-encoder jointly scores (query, document) pairs to refine retrieval
+    results. If CrossEncoder is unavailable, returns None and reranking is skipped.
+
+    Args:
+        name (str, optional): Cross-encoder model identifier. Defaults to
+                             "cross-encoder/ms-marco-MiniLM-L-6-v2".
+
+    Returns:
+        Optional[Any]: A CrossEncoder instance, or None if unavailable or load fails.
+    """
     if CrossEncoder is None:
         return None
     if name not in _RERANKER_CACHE:
@@ -85,16 +113,44 @@ def _get_reranker(name: str = _DEFAULT_RERANKER):
     return _RERANKER_CACHE[name]
 
 
-def _normalize(emb):
-    """Unit-normalize a 2D embedding array. No-op if numpy is missing."""
+def _normalize(emb: Any) -> Any:
+    """Unit-normalize a 2D embedding array to unit length for cosine distance.
+
+    If numpy is unavailable, returns the input unchanged (graceful degradation).
+    Normalization is required for cosine similarity in ChromaDB.
+
+    Args:
+        emb (Any): A 2D array-like (e.g., numpy.ndarray) with shape (n, dim).
+
+    Returns:
+        Any: The input normalized along axis 1, or the input unchanged if numpy
+             is unavailable.
+    """
     if np is None:
         return emb
     norms = np.linalg.norm(emb, axis=1, keepdims=True) + 1e-12
     return emb / norms
 
 
-# ---- io ----------------------------------------------------------------------
+# ---- I/O ----------------------------------------------------------------------
 def load_chunks(jsonl_path: str) -> Iterable[Dict[str, Any]]:
+    """Load chunk records from a JSONL file, yielding one chunk per line.
+
+    Skips blank lines and malformed JSON silently (continue on error).
+
+    Args:
+        jsonl_path (str): Path to a JSONL file where each line is a JSON chunk record.
+
+    Yields:
+        Dict[str, Any]: A parsed chunk dict (e.g., with keys doc_id, text, token_count).
+
+    Raises:
+        FileNotFoundError: If jsonl_path does not exist.
+
+    Example:
+        >>> for chunk in load_chunks("chunks/chunks.jsonl"):
+        ...     print(chunk["doc_id"], chunk["token_count"])
+    """
     p = Path(jsonl_path)
     if not p.exists():
         raise FileNotFoundError(f"Chunks file not found: {jsonl_path}")
@@ -109,27 +165,66 @@ def load_chunks(jsonl_path: str) -> Iterable[Dict[str, Any]]:
                 continue
 
 
-def ensure_client(persist_dir: str = "chroma_db"):
-    """Return a persistent Chroma client.
+def ensure_client(persist_dir: str = "chroma_db") -> Any:
+    """Return a persistent ChromaDB client, creating the persist directory if needed.
 
-    Deliberately does NOT fall back to an in-memory client: a silent ephemeral
-    store looks like it works but loses all data between runs.
+    Fails loudly if chromadb is not installed. Never falls back to in-memory storage,
+    which would silently lose data between runs.
+
+    Args:
+        persist_dir (str, optional): Directory for persistent storage. Defaults to
+                                     "chroma_db".
+
+    Returns:
+        Any: A chromadb.PersistentClient instance.
+
+    Raises:
+        RuntimeError: If chromadb is not installed.
     """
     if chromadb is None:
         raise RuntimeError("chromadb is not installed. Install with `pip install chromadb`")
     return chromadb.PersistentClient(path=persist_dir)
 
 
-# ---- indexing ----------------------------------------------------------------
-def embed_and_index(
-    chunks_jsonl: str = "chunks/chunks.jsonl",
-    persist_dir: str = "chroma_db",
-    collection_name: str = "documents",
-    model_name: str = "all-MiniLM-L6-v2",
-    batch_size: int = 128,
-    overwrite: bool = False,
-) -> Any:
-    """Embed chunks and index them into a persistent, cosine-space Chroma collection."""
+# ---- Indexing ----------------------------------------------------------------
+def embed_and_index(chunks_jsonl: str = "chunks/chunks.jsonl",
+                    persist_dir: str = "chroma_db",
+                    collection_name: str = "documents",
+                    model_name: str = "all-MiniLM-L6-v2",
+                    batch_size: int = 128,
+                    overwrite: bool = False,) -> Any:
+    """Embed chunks from a JSONL file and index them into ChromaDB with metadata.
+
+    Loads chunks one or more batches, encodes them via the embedding model,
+    normalizes embeddings to unit length (cosine), and stores them in a persistent
+    ChromaDB collection. Includes a model consistency guard: the collection records
+    which model was used to build it, and refuses to index with a different model.
+
+    Args:
+        chunks_jsonl (str, optional): Path to input chunks JSONL. Defaults to
+                                      "chunks/chunks.jsonl".
+        persist_dir (str, optional): ChromaDB persistence directory. Defaults to
+                                     "chroma_db".
+        collection_name (str, optional): Name of the collection to create/use.
+                                         Defaults to "documents".
+        model_name (str, optional): Sentence-Transformers model identifier. Defaults
+                                    to "all-MiniLM-L6-v2".
+        batch_size (int, optional): Batch size for encoding. Defaults to 128.
+        overwrite (bool, optional): Delete and recreate the collection if it exists.
+                                    Defaults to False.
+
+    Returns:
+        Any: The ChromaDB collection object.
+
+    Raises:
+        RuntimeError: If the collection was built with a different model_name.
+        FileNotFoundError: If chunks_jsonl does not exist.
+
+    Example:
+        >>> coll = embed_and_index("chunks/chunks.jsonl", overwrite=True)
+        >>> print(coll.count())
+        247
+    """
     model = _get_model(model_name)
     client = ensure_client(persist_dir)
 
@@ -146,7 +241,7 @@ def embed_and_index(
     except Exception:
         collection = client.create_collection(name=collection_name, metadata=coll_metadata)
 
-    # Guard: never mix models within one collection.
+    # Guard: Never mix models within one collection.
     existing_model = (collection.metadata or {}).get("embedding_model")
     if existing_model and existing_model != model_name:
         raise RuntimeError(
@@ -159,6 +254,7 @@ def embed_and_index(
     docs_batch: List[str] = []
     met_batch: List[Dict[str, Any]] = []
 
+    # Flush any remaining items in the batch to the collection, encoding and normalizing embeddings.
     def flush():
         if not ids_batch:
             return
@@ -192,25 +288,53 @@ def embed_and_index(
     return collection
 
 
-# ---- retrieval ---------------------------------------------------------------
-def retrieve(
-    query: str,
-    persist_dir: str = "chroma_db",
-    collection_name: str = "documents",
-    model_name: str = "all-MiniLM-L6-v2",
-    k: int = 3,
-    rerank: bool = True,
-) -> Dict[str, Any]:
-    """Return the top-k chunks for `query`.
+# ---- Retrieval ---------------------------------------------------------------
+def retrieve(query: str,
+            persist_dir: str = "chroma_db",
+            collection_name: str = "documents",
+            model_name: str = "all-MiniLM-L6-v2",
+            k: int = 3,
+            rerank: bool = True,) -> Dict[str, Any]:
+    """Retrieve top-k relevant chunks for a query using semantic search + optional reranking.
 
-    Pulls a wider candidate set from the vector store, then (if a cross-encoder
-    is available) reranks by true query-document relevance and keeps the top k.
+    Encodes the query, retrieves the top 20 candidates from the vector index
+    (for recall), optionally reranks them via cross-encoder (for precision), and
+    returns the top k. Result dicts include cosine_similarity and (if reranked)
+    rerank_score fields.
+
+    Args:
+        query (str): The search query string.
+        persist_dir (str, optional): ChromaDB persistence directory. Defaults to
+                                     "chroma_db".
+        collection_name (str, optional): Collection name to query. Defaults to
+                                         "documents".
+        model_name (str, optional): Embedding model (must match the index model).
+                                    Defaults to "all-MiniLM-L6-v2".
+        k (int, optional): Number of results to return. Defaults to 3.
+        rerank (bool, optional): Apply cross-encoder reranking. Defaults to True.
+
+    Returns:
+        Dict[str, Any]: A dict with keys:
+            - query (str): The input query.
+            - results (List[Dict]): Top-k result dicts, each with id, document,
+                                    metadata, distance, cosine_similarity, and
+                                    (if reranked) rerank_score.
+            - reranked (bool): Whether reranking was applied.
+
+    Raises:
+        RuntimeError: If the index was built with a different model_name.
+        FileNotFoundError: If persist_dir does not exist.
+
+    Example:
+        >>> res = retrieve("off-campus housing near Penn State", k=5)
+        >>> for r in res["results"]:
+        ...     print(r["id"], round(r["cosine_similarity"], 2))
     """
     model = _get_model(model_name)
     client = ensure_client(persist_dir)
     collection = client.get_collection(name=collection_name)
 
-    # Guard: query model must match the model the index was built with.
+    # Guard: Query model must match the model the index was built with.
     built_with = (collection.metadata or {}).get("embedding_model")
     if built_with and built_with != model_name:
         raise RuntimeError(

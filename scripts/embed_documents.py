@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""CLI: embed chunks.jsonl into ChromaDB using the project's embedding pipeline."""
+"""embed_documents.py - CLI for embedding and indexing chunks into ChromaDB.
+
+Loads chunks from a JSONL file, encodes them via Sentence-Transformers,
+normalizes embeddings, and stores them in a persistent ChromaDB collection.
+"""
 import argparse
 import os
 import sys
@@ -9,7 +13,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pipeline.embeddings import embed_and_index
 
 
-def main():
+def main() -> None:
+    """Parse arguments and run the embedding + indexing pipeline.
+
+    Accepts optional arguments for chunks path, ChromaDB location, collection name,
+    embedding model, batch size, and overwrite flag.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--chunks", default="chunks/chunks.jsonl", help="Input chunks JSONL")
     p.add_argument("--persist_dir", default="chroma_db", help="ChromaDB persist directory")

@@ -1,3 +1,8 @@
+"""download_documents.py - CLI for downloading documents from URLs and saving them as HTML.
+
+Extracts URLs from a markdown file, fetches them using requests (or Playwright
+for JS-heavy pages), and saves the HTML to a directory with metadata tracking.
+"""
 import argparse
 import re
 import time
@@ -11,10 +16,24 @@ try:
 except Exception:
     sync_playwright = None
 
-# extract_urls_from_markdown(): Function that takes a Path to a markdown file, reads its content, and uses a regex to extract and clean URLs
-    # Cleaning involves stripping trailing punctuation and ensuring uniqueness. It returns a list of unique URLs found in the markdown text.
-    # Returns a list of unique URLs found in the markdown text.
+
 def extract_urls_from_markdown(md_path: Path) -> list:
+    """Extract and deduplicate URLs from a markdown file.
+
+    Uses a regex to find all http(s) URLs, strips trailing punctuation (.,;|),
+    and returns a deduplicated list in order.
+
+    Args:
+        md_path (Path): Path to a markdown file (e.g., planning.md).
+
+    Returns:
+        list: A list of unique URL strings found in the markdown.
+
+    Example:
+        >>> urls = extract_urls_from_markdown(Path("planning.md"))
+        >>> print(urls[0])
+        https://www.reddit.com/r/PennStateUniversity/...
+    """
     text = md_path.read_text(encoding="utf-8")
     # Crude URL regex that skips trailing table delimiters
     found = re.findall(r"https?://[^\s)\]\|]+", text)
@@ -27,9 +46,24 @@ def extract_urls_from_markdown(md_path: Path) -> list:
             cleaned.append(u)
     return cleaned
 
-# safe_filename(): Function that generates a safe filename for a given URL and index. 
-    # It parses the URL, extracts the netloc and last path segment, sanitizes them, and combines them with a hash of the URL to create a unique filename.
 def safe_filename(url: str, index: int) -> str:
+    """Generate a safe, unique filename for a downloaded URL.
+
+    Extracts the domain (netloc) and last path segment from the URL, sanitizes
+    them to filesystem-safe characters, truncates long segments, and appends a
+    hash of the URL for uniqueness. Result format: "01_netloc_pathseg_hash.html".
+
+    Args:
+        url (str): The URL to generate a filename for.
+        index (int): A 1-based ordinal index (used as the leading number).
+
+    Returns:
+        str: A filesystem-safe filename string (e.g., "01_www.reddit.com_comments_abc123.html").
+
+    Example:
+        >>> safe_filename("https://www.reddit.com/r/Penn/comments/xyz", 1)
+        '01_www.reddit.com_comments_4a5f9e2b.html'
+    """
     p = urlparse(url)
     netloc = p.netloc.replace(":", "_")
     path = p.path.strip("/")
@@ -41,9 +75,29 @@ def safe_filename(url: str, index: int) -> str:
     filename = f"{index:02d}_{netloc}_{last}_{h}.html"
     return filename
 
-# fetch_with_requests(): Function that attempts to fetch a URL using the requests library, with specified headers, timeout, and retry logic.
-    # It returns a tuple indicating success, the response text (if successful), and the status code.
-def fetch_with_requests(url: str, headers: dict, timeout: int = 15, tries: int = 3):
+def fetch_with_requests(url: str, headers: dict, timeout: int = 15, tries: int = 3) -> tuple:
+    """Fetch a URL using the requests library with retry logic.
+
+    Attempts to fetch the URL up to `tries` times, with a 1-second delay between
+    retries. Returns success status, response body, and HTTP status code.
+
+    Args:
+        url (str): The URL to fetch.
+        headers (dict): HTTP headers dict (e.g., {"User-Agent": "..."}).
+        timeout (int, optional): Request timeout in seconds. Defaults to 15.
+        tries (int, optional): Maximum number of retry attempts. Defaults to 3.
+
+    Returns:
+        tuple: A 3-tuple (success, body, status_code):
+            - success (bool): True if a 200 response was received.
+            - body (str or None): Response body if successful, None otherwise.
+            - status_code (int or None): HTTP status code, or None if unreachable.
+
+    Example:
+        >>> ok, body, code = fetch_with_requests("https://...", {"User-Agent": "..."})
+        >>> if ok:
+        ...     print(len(body), "bytes retrieved")
+    """
     for attempt in range(1, tries + 1):
         try:
             resp = requests.get(url, headers=headers, timeout=timeout)
@@ -56,11 +110,32 @@ def fetch_with_requests(url: str, headers: dict, timeout: int = 15, tries: int =
         time.sleep(1)
     return False, None, None
 
-# fetch_with_playwright(): Function that attempts to fetch a URL using Playwright, with options for browser type, timeout, interactive mode, and user agent.
-    # It handles navigation, optional interactions (like clicking cookie consent buttons), and returns a tuple indicating success, the page content (if successful), and a status code (200 if content is retrieved, None otherwise). 
-    # It also includes error handling for Playwright operations.
 def fetch_with_playwright(url: str, browser_name: str = "chromium", timeout: int = 30,
-                          interactive: bool = False, user_agent: str | None = None):
+                          interactive: bool = False, user_agent: str | None = None) -> tuple:
+    """Fetch a URL using Playwright (for JS-heavy pages).
+
+    Launches a headless (or headful if interactive=True) browser, navigates to the
+    URL, optionally clicks consent buttons and scrolls (for SPA content rendering),
+    and returns the page HTML. Handles navigation errors gracefully.
+
+    Args:
+        url (str): The URL to fetch.
+        browser_name (str, optional): Browser type ("chromium", "firefox", "webkit").
+                                      Defaults to "chromium".
+        timeout (int, optional): Navigation timeout in seconds. Defaults to 30.
+        interactive (bool, optional): Launch in headful mode and attempt cookie
+                                      consent interactions. Defaults to False.
+        user_agent (str, optional): Custom user agent string. Defaults to None.
+
+    Returns:
+        tuple: A 3-tuple (success, content, status_code):
+            - success (bool): True if page content was retrieved.
+            - content (str or None): The page HTML if successful, None otherwise.
+            - status_code (int or None): 200 if successful, None otherwise.
+
+    Raises:
+        None: Returns (False, None, None) on any Playwright error.
+    """
     if sync_playwright is None:
         print("Playwright not installed; cannot fetch with browser.")
         return False, None, None
@@ -118,10 +193,13 @@ def fetch_with_playwright(url: str, browser_name: str = "chromium", timeout: int
         print(f"Playwright fetch error for {url}: {e}")
         return False, None, None
 
-# main(): Command-line interface function that parses arguments for input markdown file, output directory, timeout, retry attempts, user agent, and Playwright options.
-    # It extracts URLs from the specified markdown file, attempts to fetch each URL using requests (with optional fallback to Playwright)
-    # Saves the content to HTML files in the output directory, and records metadata about each fetch attempt in a JSON file. Finally, it prints a summary of the download results.
-def main():
+def main() -> None:
+    """Parse arguments and download documents from URLs.
+
+    Extracts URLs from a markdown file, fetches each URL (with optional Playwright
+    fallback), saves HTML files with sequential numbering, and records metadata
+    (success, status codes, file sizes) in a JSON file.
+    """
     p = argparse.ArgumentParser()
     p.add_argument("--input", default="planning.md", help="Markdown file with URLs (planning.md)")
     p.add_argument("--out", default="documents", help="Output directory for saved HTML files")
