@@ -110,13 +110,20 @@
 - Note: Stop concatenating chunks at generation time when adding another would exceed the LLM token budget.
      - Mathematically: `sum(token_chunks) + prompt_tokens > model_context`
 
-**Retrieval strategy (Semantic Recall + Cross-Encoder Rerank):**
+**Retrieval strategy (Hybrid Recall + RRF Fusion + Cross-Encoder Rerank):**
 - Semantic Recall: Cosine semantic search over mpnet embeddings returns the top `k_candidate = 20`.
-- Rerank: A lightweight cross-encoder `cross-encoder/ms-marco/MiniLM-L-6-v2` scores each `(query, chunk)` pair jointly & reorders the top candidates; the top-k_final are returned. This is the precision step & is the mechanism that correct cases where a short, keyword-dense chunk inaccurately outscores the true answer on raw cosine. 
+- Keyword Recall (Hybrid): A BM25 index (`rank_bm25`) over the same chunk corpus scores the query by exact term overlap, returning its own top `k_candidate`. This catches exact entity matches (apartment names like "The Maxxen", landlord names like "Hendricks", addresses) that dense embeddings alone can miss when the surrounding semantics are weak.
+- Fusion: The semantic and BM25 candidate rankings are merged with Reciprocal Rank Fusion (`RRF`, `k = 60`). RRF combines ranks rather than raw scores, so the incompatible scales of cosine similarity and BM25 never need to be reconciled, and an item ranked highly by both retrievers rises to the top.
+- Rerank: A lightweight cross-encoder `cross-encoder/ms-marco-MiniLM-L-6-v2` scores each `(query, chunk)` pair jointly & reorders the fused candidates; the top-k_final are returned. This is the precision step & is the mechanism that corrects cases where a short, keyword-dense chunk inaccurately outscores the true answer on raw cosine. 
+- Graceful Degradation: If `rank_bm25` is unavailable, retrieval falls back to pure semantic recall; if the cross-encoder is unavailable, candidates are returned in fused RRF order. The response reports `hybrid` (did BM25 contribute) and `reranked` flags.
+
+**Metadata Filtering & Boosting (Implemented):**
+- Filtering: `retrieve(...)` accepts a `filters` spec applied to the candidate pool before reranking. Supported keys: `source_contains` (case-insensitive substring on `source`), `equals` (exact match on arbitrary fields), `date_after` / `date_before` (inclusive ISO-date bounds), and `min_rating` (numeric floor). When a filter is active, the recall pool is widened so enough candidates survive for reranking.
+- Boosting: `source_boost` maps a source substring to a score multiplier (e.g., trust the official Penn State guide over an anonymous forum post), applied to the fused scores without discarding non-matching chunks.
+- `source` filtering/boosting works today against the `source` metadata already stored on every chunk. `date` and `rating` filtering plumbing is active but depends on those fields being populated, which requires extending extraction (see below); until then those filters only match chunks that already carry the field.
 
 **Planned Stretch (Not Implemented Yet)**:
-- Hybrid Search: Add BM25/keyword recall to catch exact entity matches (i.e., apartment names, addresses) that embeddings alone can miss, then fuse with the semantic candidates before reranking. 
-- Metadata Filtering: Filter/boost by `source` (implemented), and after extending extraction: by `date` and `rating`.
+- Extended Extraction: Parse and store `date` (post/article date) and `rating` (e.g., star/score) at ingestion so the existing `date`/`rating` filters become fully effective across the corpus.
 
 **Production Tradeoffs & Reflection:**
 
@@ -188,7 +195,7 @@
 1. Document Ingestion (`requests`/Playwright → local HTML) → 
 2. Chunking (`chunker.py`: `BeautifulSoup` cleaning + sentence-first, `tiktoken` counted chunks) → 
 3. Embedding + Vector Store (`all-mpnet-base-v2` via `sentence-transformers` →  `ChromaDB`, cosine space) ->
-4. Retrieval (cosine recall, top-20 → `cross-encoder/ms-marco-MiniLM-L-6-v2` rerank → top-k) → 
+4. Retrieval (hybrid: cosine + `rank_bm25` keyword recall, top-20 each → RRF fusion → metadata filter/boost → `cross-encoder/ms-marco-MiniLM-L-6-v2` rerank → top-k) → 
 5. Generation (Groq `llama-3.3-70b-versatile`, grounded prompt, `gradio` user interface)
 
 ---

@@ -140,13 +140,21 @@ Below are five representative chunks extracted from the processed corpus (each l
 - Note: Stop concatenating chunks at generation time when adding another would exceed the LLM token budget.
      - Mathematically: `sum(token_chunks) + prompt_tokens > model_context`
 
-**Retrieval strategy (Semantic Recall + Cross-Encoder Rerank):**
+**Retrieval strategy (Hybrid Recall + RRF Fusion + Cross-Encoder Rerank):**
 - Semantic Recall: Cosine semantic search over mpnet embeddings returns the top `k_candidate = 20`.
-- Rerank: A lightweight cross-encoder `cross-encoder/ms-marco/MiniLM-L-6-v2` scores each `(query, chunk)` pair jointly & reorders the top candidates; the top-k_final are returned. This is the precision step & is the mechanism that correct cases where a short, keyword-dense chunk inaccurately outscores the true answer on raw cosine. 
+- Keyword Recall (Hybrid): A BM25 index (`rank_bm25`) over the same chunk corpus scores the query by exact term overlap and returns its own top `k_candidate`. This catches exact entity matches (apartment names like "The Maxxen", landlord names like "Hendricks", addresses) that dense embeddings alone can miss when the surrounding semantics are weak. Empirically, the "Hendricks Investments" chunks score only ~0.35–0.40 cosine but BM25 6.2–6.8, so keyword recall is what lifts them to the top.
+- Fusion: The semantic and BM25 rankings are merged with Reciprocal Rank Fusion (`RRF`, `k = 60`), which combines ranks rather than raw scores so the incompatible cosine and BM25 scales never need reconciling.
+- Rerank: A lightweight cross-encoder `cross-encoder/ms-marco-MiniLM-L-6-v2` scores each `(query, chunk)` pair jointly & reorders the fused candidates; the top-k_final are returned. This is the precision step & is the mechanism that corrects cases where a short, keyword-dense chunk inaccurately outscores the true answer on raw cosine. 
+- Graceful Degradation: If `rank_bm25` is unavailable, retrieval falls back to pure semantic recall; if the cross-encoder is unavailable, candidates are returned in fused RRF order. The retrieval response reports `hybrid` and `reranked` flags.
+
+**Metadata Filtering & Boosting (Implemented):**
+- Filtering: `retrieve(...)` (and `ask(...)`) accept a `filters` spec applied to the candidate pool before reranking — `source_contains` (case-insensitive substring on `source`), `equals` (exact match on arbitrary fields), `date_after` / `date_before` (inclusive ISO-date bounds), and `min_rating` (numeric floor). When a filter is active, the recall pool is widened so enough candidates survive reranking.
+- Boosting: `source_boost` maps a source substring to a score multiplier (e.g., trust the official Penn State guide over an anonymous forum post), applied to fused scores without discarding non-matching chunks.
+- The CLI exposes these via `--source`, `--min-rating`, `--date-after`, `--date-before`, and `--no-hybrid` / `--no-rerank`.
+- `source` filtering/boosting works today against the `source` metadata stored on every chunk. `date`/`rating` filter plumbing is active but depends on those fields being populated, which requires extending extraction.
 
 **Planned Stretch (Not Implemented Yet)**:
-- Hybrid Search: Add BM25/keyword recall to catch exact entity matches (i.e., apartment names, addresses) that embeddings alone can miss, then fuse with the semantic candidates before reranking. 
-- Metadata Filtering: Filter/boost by `source` (implemented), and after extending extraction: by `date` and `rating`.
+- Extended Extraction: Parse and store `date` (post/article date) and `rating` (e.g., star/score) at ingestion so the existing `date`/`rating` filters become fully effective across the corpus.
 
 **Production Tradeoffs & Reflection:**
 

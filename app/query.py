@@ -329,25 +329,27 @@ def _generate(messages: List[Dict[str, str]], llm_model: str, max_tokens: int,
 
 
 # ---- Public End-to-End Entry Point -------------------------------------------
-def ask(
-    question: str,
-    *,
-    k: int = DEFAULT_K,
-    persist_dir: str = "chroma_db",
-    collection_name: str = "documents",
-    model_name: str = EMBED_MODEL,
-    rerank: bool = True,
-    llm_model: str = LLM_MODEL,
-    max_tokens: int = 600,
-    temperature: float = 0.0,
-) -> Dict[str, Any]:
+def ask(question: str,
+        *,
+        k: int = DEFAULT_K,
+        persist_dir: str = "chroma_db",
+        collection_name: str = "documents",
+        model_name: str = EMBED_MODEL,
+        rerank: bool = True,
+        hybrid: bool = True,
+        filters: Optional[Dict[str, Any]] = None,
+        source_boost: Optional[Dict[str, float]] = None,
+        llm_model: str = LLM_MODEL,
+        max_tokens: int = 600,
+        temperature: float = 0.0,) -> Dict[str, Any]:
     """Retrieve grounded context for a question and generate a cited answer.
 
-    End-to-end entry point: retrieves relevant chunks from the vector index,
-    generates an answer grounded only in that context (with no hallucination),
-    and attaches programmatic source attribution derived from chunk metadata.
-    If retrieval is empty, refuses without calling the LLM. If the model refuses,
-    suppresses sources (no grounded claim to attribute).
+    End-to-end entry point: retrieves relevant chunks from the vector index via
+    hybrid semantic + keyword search (with optional metadata filtering and source
+    boosting), generates an answer grounded only in that context (with no
+    hallucination), and attaches programmatic source attribution derived from chunk
+    metadata. If retrieval is empty, refuses without calling the LLM. If the model
+    refuses, suppresses sources (no grounded claim to attribute).
 
     Args:
         question (str): The user's question.
@@ -358,6 +360,13 @@ def ask(
         model_name (str, optional): Embedding model (must match index). Defaults to
                                     EMBED_MODEL ("all-mpnet-base-v2").
         rerank (bool, optional): Use cross-encoder reranking. Defaults to True.
+        hybrid (bool, optional): Fuse BM25 keyword recall with semantic recall.
+                                 Defaults to True.
+        filters (dict, optional): Metadata filter spec forwarded to retrieve()
+            (keys: source_contains, equals, date_after, date_before, min_rating).
+            Defaults to None.
+        source_boost (dict, optional): Map of source substring -> score multiplier
+            forwarded to retrieve(). Defaults to None.
         llm_model (str, optional): Groq model identifier. Defaults to LLM_MODEL
                                    ("llama-3.3-70b-versatile").
         max_tokens (int, optional): Max tokens in LLM response. Defaults to 600.
@@ -391,6 +400,9 @@ def ask(
         model_name=model_name,
         k=k,
         rerank=rerank,
+        hybrid=hybrid,
+        filters=filters,
+        source_boost=source_boost,
     )
     results = retrieval.get("results") or []
 
@@ -425,7 +437,11 @@ def _cli() -> None:
     p.add_argument("--collection", default="documents")
     p.add_argument("--model", default=EMBED_MODEL, help="Embedding model (must match index)")
     p.add_argument("--no-rerank", action="store_true")
+    p.add_argument("--no-hybrid", action="store_true", help="Disable BM25 keyword recall (semantic only)")
+    p.add_argument("--source", default=None, help="Only use chunks whose source contains this substring")
     args = p.parse_args()
+
+    filters = {"source_contains": args.source} if args.source else None
 
     res = ask(
         args.question,
@@ -434,6 +450,8 @@ def _cli() -> None:
         collection_name=args.collection,
         model_name=args.model,
         rerank=not args.no_rerank,
+        hybrid=not args.no_hybrid,
+        filters=filters,
     )
     print("\n=== Answer ===\n")
     print(res["answer"])
