@@ -88,7 +88,31 @@
 
 - Metadata Logic: Each chunk record carries doc_id, source, chunk_index, char_span, token_span, and token_count. The fields pushed to the vector store are doc_id, source, chunk_index, char_span, and token_count, ensuring enough context for precise grounding & accurate source attribution. 
 
-- Cost & Performance: Heuristic token-aware chunking controls embedding cost & LLM context while preserving semantics. Paragraph-first logic & exact duplicate chunk removal reduces redundancy of chunks and improves attribution. 
+ - Cost & Performance: Heuristic token-aware chunking controls embedding cost & LLM context while preserving semantics. Paragraph-first logic & exact duplicate chunk removal reduces redundancy of chunks and improves attribution. 
+
+**Sample Chunks**
+
+Below are five representative chunks extracted from the processed corpus (each labeled with its source file). These demonstrate chunk size, coherence, and metadata alignment.
+
+- Source: documents/01_www.reddit.com_r_PennStateUniversity_comments_1rhinfv_apartment_recommendations.html
+
+     "Go to PennStateUniversity r/PennStateUniversity Jer_Bear_Berry Apartment Recommendations I got into the Penn State Law School at the University Park Campus. I am starting to look at house and was wondering what recommendations people have. I have heard mixed reviews and I know everywhere is relatively expensive. Places people have told me are The Yards, The Heights, and The View. These places are all within my budget ~$1,200 per month. I was wondering if people have any other recommendations and if there were any spots closer to campus that are within (or around) my price range."
+
+- Source: documents/02_www.reddit.com_r_PennStateUniversity_comments_13hyekl_looking_for_housing_around_state_college.html
+
+     "We have 2 cars, 2 cats, and 2 birds. (LMAO) We have a budget of around $1200. Commute radius about 30 minutes to PSU campus. 1B/2B/Studio are fine. unfurnished Her preferences: in unit W/D or hookup, big closet My preferences: garage or driveway, house or townhouse will be ideal (not necessary) Someone help me please. If anyone can find me a good place, I will buy them a big meal :/"
+
+- Source: documents/04_livingoffcampus.psu.edu_1830-when-the-lease-starts_623e81d1.html
+
+     "Happy Move-in Day! Here are a few move-in tips: 1. If the apartment is not clean when you arrive, contact the landlord immediately. You will not be reimbursed for cleaning the apartment yourself and will be expected to leave it in a clean condition when you move out, regardless of its condition when you moved in. 2. Before bringing your belongings into the rental unit, perform a careful walk-through inspection. Make a list of pre-existing damages."
+
+- Source: documents/06_www.psucollegian.com_article_783cc63c-e4d6-11ef-8e8_555cba9c.html
+
+     "The search for off-campus housing in downtown State College has become a high-stakes race, where students face skyrocketing rents, a wave of luxury apartment complexes and the pressure to commit to leases nearly a year in advance. For first-year students especially, the process can be overwhelming as they navigate not just lease terms and rental rates, but also the pressure to choose roommates and commit to living arrangements while still adjusting to college life."
+
+- Source: documents/11_www.reddit.com-r-PennStateUniversity-comments-hglm4y-worst_landlord_in_town.html
+
+     "I’ve been searching for 2 weeks straight to try and take my lease after the guy who was supposed to take mine found out they were doing a deal for $200 less a month. I’ve been a ball of stress this whole time, haven’t slept well, can’t sleep now at 6am. Everything about the pointe seems great. But this is so fucking scummy."
 
 ---
 
@@ -134,7 +158,7 @@
 
 - Experiment Grid: Chunk sizes (128, 256, 384) × `k_final` (3, 5, 8).
 - Metrics: `recall@k`, `MRR`, final-answer accuracy, hallucination rate, and latency/cost per query.
-- Current Verification is Manual: `scrips/query_documents.py ... --debug` prints the retrieved chunk text, distance, cosine similarity, and rerank score per query; `recall@k`/`MRR` are planned for the formal evaluation report. 
+- Current Verification is Manual: `scripts/query_documents.py ... --debug` prints the retrieved chunk text, distance, cosine similarity, and rerank score per query; `recall@k`/`MRR` are planned for the formal evaluation report. 
 
 ---
 
