@@ -1,0 +1,72 @@
+[
+  {
+    "url": "https://www.reddit.com/r/PennStateUniversity/comments/1rhinfv/apartment_recommendations/",
+    "file": "documents\\01_www.reddit.com_apartment_recommendations_fea98423.html",
+    "ok": true,
+    "status_code": 200,
+    "size": 8489
+  },
+  {
+    "url": "https://www.reddit.com/r/PennStateUniversity/comments/13hyekl/looking_for_housing_around_state_college/",
+    "file": "documents\\02_www.reddit.com_looking_for_housing_around_sta_bb65a93a.html",
+    "ok": true,
+    "status_code": 200,
+    "size": 8504
+  },
+  {
+    "url": "https://www.tripadvisor.com/ShowTopic-g53755-i1075-k6936316-Off_Campus_Housing-State_College_Pennsylvania.html",
+    "file": "documents\\03_www.tripadvisor.com_ShowTopic-g53755-i1075-k693631_b69613ad.html",
+    "ok": true,
+    "status_code": 200,
+    "size": 1558
+  },
+  {
+    "url": "https://livingoffcampus.psu.edu/resources/article/1830-when-the-lease-starts",
+    "file": "documents\\04_livingoffcampus.psu.edu_1830-when-the-lease-starts_623e81d1.html",
+    "ok": true,
+    "status_code": 200,
+    "size": 405400
+  },
+  {
+    "url": "https://www.collegemagazine.com/ten-best-places-to-live-off-campus-at-penn-state/",
+    "file": "documents\\05_www.collegemagazine.com_ten-best-places-to-live-off-ca_7f61f9a8.html",
+    "ok": true,
+    "status_code": 200,
+    "size": 32011
+  },
+  {
+    "url": "https://www.psucollegian.com/news/penn-state-1st-year-students-discuss-finding-off-campus-housing-apartments/article_783cc63c-e4d6-11ef-8e8c-3fe7e0db1f05.html",
+    "file": "documents\\06_www.psucollegian.com_article_783cc63c-e4d6-11ef-8e8_555cba9c.html",
+    "ok": true,
+    "status_code": 200,
+    "size": 263199
+  },
+  {
+    "url": "https://www.psucollegian.com/news/we-wanted-to-be-downtown-students-share-the-factors-behind-their-off-campus-housing-choices/article_b21d3473-49a7-4afe-b42f-bf7038d8baff.html",
+    "file": "documents\\07_www.psucollegian.com_article_b21d3473-49a7-4afe-b42_1c1731d5.html",
+    "ok": true,
+    "status_code": 200,
+    "size": 262069
+  },
+  {
+    "url": "https://www.facebook.com/groups/669735056706459/posts/2600632426950036/",
+    "file": "documents\\08_www.facebook.com_2600632426950036_51224945.html",
+    "ok": true,
+    "status_code": 200,
+    "size": 1210677
+  },
+  {
+    "url": "https://www.reddit.com/r/PennStateUniversity/comments/1i2u740/off_campus_housing/",
+    "file": "documents\\09_www.reddit.com_off_campus_housing_39efb2c8.html",
+    "ok": true,
+    "status_code": 200,
+    "size": 8482
+  },
+  {
+    "url": "https://www.reddit.com/r/PennStateUniversity/comments/1jzuq7t/reviews_on_these_offcampus_apartments/",
+    "file": "documents\\10_www.reddit.com_reviews_on_these_offcampus_apa_de81c2a4.html",
+    "ok": true,
+    "status_code": 200,
+    "size": 8501
+  }
+]

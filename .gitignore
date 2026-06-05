@@ -11,8 +11,8 @@ venv/
 env/
 
 # Documents & Generated Chunks
-documents/
-chunks/
+# documents/
+# chunks/
 
 # Jupyter
 .ipynb_checkpoints/
