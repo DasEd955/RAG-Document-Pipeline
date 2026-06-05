@@ -160,6 +160,7 @@
 | 3 | Do you have to act fast to get off-campus housing at Penn State? | Yes, first year students often lease for their second year during fall semester. |
 | 4 | Is The Maxxen well ranked by students? | Positive Sentiment: Students describe The Maxxen as luxury furnished & generally safe. |
 | 5 | Can I feasibly live off-campus with no car? | Yes, students report that State College has reliable public transport. |
+| 6 | Has Hendricks Investments been reported to enter units without notice? | Yes, reports by students online have stated that they have been known to enter tenant apartments without advanced notice. |
 
 **Scoring Rubric:**
 - 3 (Highest): Claim supported & at least one cited chunk or clear reference from the corpus.

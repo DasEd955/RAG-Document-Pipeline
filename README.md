@@ -148,7 +148,7 @@ Below are five representative chunks extracted from the processed corpus (each l
 - Graceful Degradation: If `rank_bm25` is unavailable, retrieval falls back to pure semantic recall; if the cross-encoder is unavailable, candidates are returned in fused RRF order. The retrieval response reports `hybrid` and `reranked` flags.
 
 **Metadata Filtering & Boosting (Implemented):**
-- Filtering: `retrieve(...)` (and `ask(...)`) accept a `filters` spec applied to the candidate pool before reranking — `source_contains` (case-insensitive substring on `source`), `equals` (exact match on arbitrary fields), `date_after` / `date_before` (inclusive ISO-date bounds), and `min_rating` (numeric floor). When a filter is active, the recall pool is widened so enough candidates survive reranking.
+- Filtering: `retrieve(...)` (and `ask(...)`) accept a `filters` spec applied to the candidate pool before reranking:  `source_contains` (case-insensitive substring on `source`), `equals` (exact match on arbitrary fields), `date_after` / `date_before` (inclusive ISO-date bounds), and `min_rating` (numeric floor). When a filter is active, the recall pool is widened so enough candidates survive reranking.
 - Boosting: `source_boost` maps a source substring to a score multiplier (e.g., trust the official Penn State guide over an anonymous forum post), applied to fused scores without discarding non-matching chunks.
 - The CLI exposes these via `--source`, `--min-rating`, `--date-after`, `--date-before`, and `--no-hybrid` / `--no-rerank`.
 - `source` filtering/boosting works today against the `source` metadata stored on every chunk. `date`/`rating` filter plumbing is active but depends on those fields being populated, which requires extending extraction.
