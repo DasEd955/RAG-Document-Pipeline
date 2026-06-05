@@ -28,6 +28,25 @@
 
 ---
 
+## Architecture
+
+<!-- Draw a diagram of your pipeline showing the five stages:
+     Document Ingestion → Chunking → Embedding + Vector Store → Retrieval → Generation
+     Label each stage with the tool or library you're using.
+     You can use ASCII art, a Mermaid diagram, or embed a sketch as an image.
+     You'll use this diagram as context when prompting AI tools to implement each stage. -->
+
+![RAG Architecture Diagram](RAG-Architecture.png)
+
+**Pipeline Stages:**
+1. Document Ingestion (`requests`/Playwright → local HTML) → 
+2. Chunking (`chunker.py`: `BeautifulSoup` cleaning + sentence-first, `tiktoken` counted chunks) → 
+3. Embedding + Vector Store (`all-mpnet-base-v2` via `sentence-transformers` →  `ChromaDB`, cosine space) ->
+4. Retrieval (hybrid: cosine + `rank_bm25` keyword recall, top-20 each → RRF fusion → metadata filter/boost → `cross-encoder/ms-marco-MiniLM-L-6-v2` rerank → top-k) → 
+5. Generation (Groq `llama-3.3-70b-versatile`, grounded prompt, multi-turn conversational memory via query condensation, `gradio` chat interface)
+
+---
+
 ## Document Sources
 
 <!-- List every source you collected documents from.
