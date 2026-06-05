@@ -1,74 +1,106 @@
 """
-App.py - Minimal Gradio UI Interfaceover the grounded RAG pipeline.
+App.py - Minimal Gradio chat UI over the grounded, multi-turn RAG pipeline.
 
-The UI is intentionally thin. All grounding and source-attribution logic lives in
-query.ask(); this module only renders the answer and the programmatically-built
-source list. The "Retrieved from" box is populated from result["sources"], which
-query.py derives from chunk metadata; it is never parsed from the model output.
+The UI is intentionally thin. All grounding, source-attribution, and
+conversational-memory logic lives in app.query.ask() and app.conversation; this
+module only renders the dialogue and the programmatically-built source list. The
+"Retrieved from" box is populated from result["sources"], which query.py derives
+from chunk metadata; it is never parsed from the model output.
+
+A per-session Conversation object (held in gr.State) gives the chat memory: a
+follow-up like "Is it expensive?" is resolved against earlier turns, while every
+answer remains grounded solely in the retrieved passages.
 """
 import os
 import sys
-import gradio as gr
-from app.query import ask
 
-# Make the project root importable so `app.query` (and `pipeline`) resolve whether
+import gradio as gr
+
+# Make the project root importable so `app.*` (and `pipeline`) resolve whether
 # launched as `python app/app.py` or `python -m app.app` from the repo root.
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-def handle_query(question: str) -> tuple:
-    """Process a user query and return grounded answer + sources for Gradio.
+from app.conversation import Conversation
 
-    Calls ask() to retrieve context and generate a grounded answer, then formats
-    the result for display. Returns a tuple of (answer_text, sources_text) for the
-    Gradio output textboxes.
+
+def respond(message: str, chat_history: list, conv: "Conversation | None"):
+    """Answer one chat turn in context and update the dialogue + sources panel.
+
+    Lazily creates a per-session Conversation (so memory is scoped to one browser
+    session), runs the turn through it, appends the user/assistant messages to the
+    chat transcript, and renders the latest turn's programmatic sources.
 
     Args:
-        question (str): The user's question string.
+        message (str): The user's latest message.
+        chat_history (list): The running list of {"role", "content"} message dicts
+            backing the gr.Chatbot.
+        conv (Conversation | None): The session's Conversation, or None on the first
+            turn.
 
     Returns:
-        tuple: A 2-tuple of (answer, sources_text) for Gradio output boxes.
-               - answer (str): The grounded answer or refusal phrase.
-               - sources_text (str): Newline-separated source attribution list,
-                                     or "(no sources cited)" if no grounding.
-
-    Example:
-        >>> answer, sources = handle_query("Is downtown expensive?")
-        >>> print(answer[:50])
-        Yes, downtown State College is expensive...
+        tuple: (chat_history, sources_text, conv, "") where the trailing ""
+            clears the input textbox. conv is returned so gr.State persists it.
     """
-    if not question or not question.strip():
-        return "Please enter a question.", ""
-    result = ask(question)
+    if conv is None:
+        conv = Conversation()
+    if not message or not message.strip():
+        return chat_history, "", conv, ""
+
+    result = conv.ask(message)
     answer = result["answer"]
     sources = result["sources"]
-    if sources:
-        sources_text = "\n".join(f"• {s}" for s in sources)
-    else:
-        # Refusal or empty retrieval: no grounded claim, so no attribution.
-        sources_text = "(no sources cited)"
-    return answer, sources_text
- 
+    sources_text = "\n".join(f"• {s}" for s in sources) if sources else "(no sources cited)"
 
-# Gradio UI definition: a simple interface with a question box, an "Ask" button, and output boxes for the answer and sources.
+    chat_history = chat_history + [
+        {"role": "user", "content": message},
+        {"role": "assistant", "content": answer},
+    ]
+    return chat_history, sources_text, conv, ""
+
+
+def reset(conv: "Conversation | None"):
+    """Clear the chat transcript and the conversation memory.
+
+    Args:
+        conv (Conversation | None): The session's Conversation, if any.
+
+    Returns:
+        tuple: (empty_history, cleared_sources_text, fresh_conversation).
+    """
+    if conv is not None:
+        conv.reset()
+    return [], "", Conversation()
+
+
+# Gradio UI definition: a chat window with memory, plus a panel showing the
+# programmatic source attribution for the most recent answer.
 with gr.Blocks(title="Unofficial Off-Campus Housing Guide (RAG)") as demo:
     gr.Markdown(
         "# Unofficial Off-Campus Housing Guide\n"
-        "Grounded answers about off-campus housing near Penn State University & State College, PA. "
-        "Every answer is generated **only** from retrieved source documents, with citations."
+        "Grounded, multi-turn answers about off-campus housing near Penn State University & "
+        "State College, PA. Every answer is generated **only** from retrieved source documents, "
+        "with citations. Ask follow-ups (\"is it expensive?\", \"what about parking there?\") and "
+        "the assistant remembers the conversation."
     )
+
+    conv_state = gr.State(value=None)
+
+    chatbot = gr.Chatbot(label="Conversation", height=420)
     inp = gr.Textbox(
         label="Your question",
-        placeholder="e.g. Is downtown State College, PA expensive?",
+        placeholder="e.g. Is The Maxxen well ranked by students?  (then: is it expensive?)",
         lines=2,
     )
-    btn = gr.Button("Ask", variant="primary")
-    answer = gr.Textbox(label="Answer", lines=8)
-    sources = gr.Textbox(label="Retrieved from", lines=6)
+    sources = gr.Textbox(label="Retrieved from (latest answer)", lines=6)
+    with gr.Row():
+        btn = gr.Button("Ask", variant="primary")
+        clear_btn = gr.Button("Clear conversation")
 
-    btn.click(handle_query, inputs=inp, outputs=[answer, sources])
-    inp.submit(handle_query, inputs=inp, outputs=[answer, sources])
+    btn.click(respond, inputs=[inp, chatbot, conv_state], outputs=[chatbot, sources, conv_state, inp])
+    inp.submit(respond, inputs=[inp, chatbot, conv_state], outputs=[chatbot, sources, conv_state, inp])
+    clear_btn.click(reset, inputs=[conv_state], outputs=[chatbot, sources, conv_state])
 
     gr.Examples(
         examples=[

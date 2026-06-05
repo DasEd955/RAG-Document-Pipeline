@@ -122,6 +122,13 @@
 - Boosting: `source_boost` maps a source substring to a score multiplier (e.g., trust the official Penn State guide over an anonymous forum post), applied to the fused scores without discarding non-matching chunks.
 - `source` filtering/boosting works today against the `source` metadata already stored on every chunk. `date` and `rating` filtering plumbing is active but depends on those fields being populated, which requires extending extraction (see below); until then those filters only match chunks that already carry the field.
 
+**Conversational Memory (Implemented):**
+- Goal: support multi-turn queries where a context-dependent follow-up (e.g., "Is it expensive?", "What about parking there?") is understood against the previous turns.
+- Query Condensation: before retrieval, `condense_question(...)` folds the recent conversation plus the latest message into one standalone search query via the LLM, resolving pronouns/ellipsis and carrying over constraints. This is essential because a bare follow-up like "Is it expensive?" embeds poorly: the entity it refers to lives in an earlier turn. Measured example: the follow-up "Is it expensive?" after asking about The Maxxen condenses to "Is The Maxxen expensive?", which then retrieves the $1,400/month chunks.
+- History-Aware Generation: the recent turns are inserted into the generation prompt for reference resolution only. The grounding contract is explicitly reasserted in the prompt: prior turns are NOT a source of facts, the answer must still come solely from the numbered passages, and the refusal path is unchanged.
+- State: a `Conversation` class (`app/conversation.py`) holds a rolling, bounded history (`max_history_turns`, default 6) and forwards it to `ask(...)` each turn; the Gradio UI keeps one `Conversation` per browser session via `gr.State`, and a terminal REPL is available via `python -m app.conversation`.
+- Grounding Note: condensation adds one short LLM call per follow-up (the first turn has no history and is unchanged). The "no answer without context" guarantee is preserved: empty retrieval still refuses before any answer is generated.
+
 **Planned Stretch (Not Implemented Yet)**:
 - Extended Extraction: Parse and store `date` (post/article date) and `rating` (e.g., star/score) at ingestion so the existing `date`/`rating` filters become fully effective across the corpus.
 
@@ -196,7 +203,7 @@
 2. Chunking (`chunker.py`: `BeautifulSoup` cleaning + sentence-first, `tiktoken` counted chunks) → 
 3. Embedding + Vector Store (`all-mpnet-base-v2` via `sentence-transformers` →  `ChromaDB`, cosine space) ->
 4. Retrieval (hybrid: cosine + `rank_bm25` keyword recall, top-20 each → RRF fusion → metadata filter/boost → `cross-encoder/ms-marco-MiniLM-L-6-v2` rerank → top-k) → 
-5. Generation (Groq `llama-3.3-70b-versatile`, grounded prompt, `gradio` user interface)
+5. Generation (Groq `llama-3.3-70b-versatile`, grounded prompt, multi-turn conversational memory via query condensation, `gradio` chat interface)
 
 ---
 

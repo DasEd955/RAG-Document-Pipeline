@@ -101,6 +101,29 @@ Context passages:
 # sentence (allowing for minor punctuation/whitespace differences).
 _REFUSAL_CORE = re.sub(r"[^a-z ]", "", REFUSAL_PHRASE.lower()).strip()
 
+# ---- Conversational Memory Prompts -------------------------------------------
+# Used to rewrite a context-dependent follow-up into a standalone retrieval query.
+_CONDENSE_SYSTEM_PROMPT = """You rewrite a user's latest message into a single standalone search query for a document retrieval system.
+
+Given the conversation so far and the latest user message, produce one self-contained question that:
+- resolves pronouns and references (e.g. "it", "there", "that place", "they") to the specific entity named earlier in the conversation,
+- carries over any constraints still in effect (location, budget, building or landlord name),
+- removes conversational filler.
+
+Output ONLY the rewritten query text and nothing else. If the latest message is already self-contained, output it unchanged."""
+
+# Inserted into the generation system prompt when history is present. It supplies
+# prior turns for reference resolution while reasserting the grounding contract so
+# the model never treats earlier turns as a source of new facts.
+_HISTORY_INSTRUCTION = (
+    "The earlier conversation turns below are provided ONLY to help you interpret "
+    "references in the current question (for example, resolving \"it\" or \"there\" "
+    "to a specific place). They are NOT a source of facts: you must still answer "
+    "using ONLY the numbered context passages, and still refuse if those passages "
+    "are insufficient.\n\n"
+    "Conversation so far:\n{history}\n\n"
+)
+
 
 # ---- Source Resolution (file/doc_id -> original URL) -------------------------
 # Best-effort mapping from a chunk's source file back to the URL it came from,
@@ -250,21 +273,104 @@ def _looks_like_refusal(answer: str) -> bool:
     return core == _REFUSAL_CORE or core.startswith(_REFUSAL_CORE)
 
 
-def _build_messages(question: str, context: str) -> List[Dict[str, str]]:
+def _render_history(history: Optional[List[Dict[str, str]]], max_turns: int = 6) -> str:
+    """Render the most recent conversation turns into a compact text transcript.
+
+    Keeps only the last `max_turns` turns to bound prompt size, and formats each as
+    "User: ..." / "Assistant: ..." lines. Used both to give the generator reference
+    context and to feed the query condenser.
+
+    Args:
+        history (Optional[List[Dict[str, str]]]): Prior turns, each a dict with
+            "question" and "answer" keys. None or empty yields "".
+        max_turns (int, optional): Maximum number of trailing turns to include.
+            Defaults to 6.
+
+    Returns:
+        str: A newline-joined transcript, or "" if there is no history.
+    """
+    if not history:
+        return ""
+    lines: List[str] = []
+    for turn in history[-max_turns:]:
+        q = (turn.get("question") or "").strip()
+        a = (turn.get("answer") or "").strip()
+        if q:
+            lines.append(f"User: {q}")
+        if a:
+            lines.append(f"Assistant: {a}")
+    return "\n".join(lines)
+
+
+def condense_question(question: str, history: Optional[List[Dict[str, str]]],
+                      llm_model: str = LLM_MODEL, max_turns: int = 6) -> str:
+    """Rewrite a follow-up question into a standalone retrieval query using history.
+
+    A follow-up like "Is it expensive?" embeds poorly because the entity ("it")
+    lives in an earlier turn. This uses the LLM to fold the conversation into a
+    single self-contained query (resolving pronouns and carrying over constraints)
+    so semantic + BM25 retrieval see the full intent. With no history, or if the
+    rewrite fails or comes back empty, the original question is returned unchanged.
+
+    Args:
+        question (str): The latest user message.
+        history (Optional[List[Dict[str, str]]]): Prior turns (question/answer dicts).
+        llm_model (str, optional): Groq model identifier. Defaults to LLM_MODEL.
+        max_turns (int, optional): Trailing turns to consider. Defaults to 6.
+
+    Returns:
+        str: A standalone search query (or the original question if no rewrite is
+             needed or possible).
+
+    Example:
+        >>> hist = [{"question": "Tell me about The Maxxen", "answer": "It is ..."}]
+        >>> condense_question("Is it expensive?", hist)  # doctest: +SKIP
+        'Is The Maxxen expensive?'
+    """
+    if not history:
+        return question
+    transcript = _render_history(history, max_turns)
+    messages = [
+        {"role": "system", "content": _CONDENSE_SYSTEM_PROMPT},
+        {"role": "user", "content": f"Conversation so far:\n{transcript}\n\n"
+                                    f"Latest user message: {question}\n\nStandalone query:"},
+    ]
+    try:
+        rewritten = _generate(messages, llm_model, max_tokens=128, temperature=0.0)
+    except Exception:
+        return question
+    # Strip surrounding quotes/whitespace the model sometimes adds.
+    rewritten = rewritten.strip().strip('"').strip()
+    return rewritten or question
+
+
+def _build_messages(question: str, context: str,
+                    history: Optional[List[Dict[str, str]]] = None) -> List[Dict[str, str]]:
     """Build a system + user message pair for the LLM.
 
-    Formats the system prompt with the refusal phrase and numbered context,
-    then creates the user message containing the question.
+    Formats the system prompt with the refusal phrase and numbered context, then
+    creates the user message containing the question. When conversation history is
+    supplied, a transcript is inserted into the system prompt for reference
+    resolution only; the grounding rule (answer ONLY from the passages) is
+    explicitly preserved, so prior turns never become a source of new facts.
 
     Args:
         question (str): The user's question.
         context (str): The numbered context block "[1] ...", "[2] ...", etc.
+        history (Optional[List[Dict[str, str]]]): Prior turns for multi-turn
+            context. Defaults to None (single-turn; prompt is unchanged).
 
     Returns:
         List[Dict[str, str]]: A list of message dicts ready for the LLM API:
             [{"role": "system", "content": "..."}, {"role": "user", "content": "..."}]
     """
     system = _SYSTEM_PROMPT_TEMPLATE.format(refusal=REFUSAL_PHRASE, context=context)
+    transcript = _render_history(history)
+    if transcript:
+        block = _HISTORY_INSTRUCTION.format(history=transcript)
+        # Insert the history block immediately before the context so the grounding
+        # rules and the passages still bracket the model's attention.
+        system = system.replace("Context passages:", block + "Context passages:")
     return [
         {"role": "system", "content": system},
         {"role": "user", "content": question},
@@ -339,6 +445,8 @@ def ask(question: str,
         hybrid: bool = True,
         filters: Optional[Dict[str, Any]] = None,
         source_boost: Optional[Dict[str, float]] = None,
+        history: Optional[List[Dict[str, str]]] = None,
+        retrieval_query: Optional[str] = None,
         llm_model: str = LLM_MODEL,
         max_tokens: int = 600,
         temperature: float = 0.0,) -> Dict[str, Any]:
@@ -348,8 +456,14 @@ def ask(question: str,
     hybrid semantic + keyword search (with optional metadata filtering and source
     boosting), generates an answer grounded only in that context (with no
     hallucination), and attaches programmatic source attribution derived from chunk
-    metadata. If retrieval is empty, refuses without calling the LLM. If the model
-    refuses, suppresses sources (no grounded claim to attribute).
+    metadata. If retrieval is empty, refuses without calling the LLM for an answer.
+    If the model refuses, suppresses sources (no grounded claim to attribute).
+
+    Conversational memory: when `history` is supplied, a context-dependent
+    follow-up is first condensed into a standalone retrieval query (so it embeds
+    well), and the prior turns are added to the generation prompt for reference
+    resolution only. The grounding contract is unchanged: the answer still comes
+    solely from the retrieved passages.
 
     Args:
         question (str): The user's question.
@@ -367,6 +481,10 @@ def ask(question: str,
             Defaults to None.
         source_boost (dict, optional): Map of source substring -> score multiplier
             forwarded to retrieve(). Defaults to None.
+        history (list, optional): Prior conversation turns, each a dict with
+            "question" and "answer" keys. Enables multi-turn context. Defaults to None.
+        retrieval_query (str, optional): Pre-computed standalone query to retrieve
+            with, overriding auto-condensation. Defaults to None.
         llm_model (str, optional): Groq model identifier. Defaults to LLM_MODEL
                                    ("llama-3.3-70b-versatile").
         max_tokens (int, optional): Max tokens in LLM response. Defaults to 600.
@@ -380,6 +498,8 @@ def ask(question: str,
                                    empty if answer is a refusal.
             - grounded (bool): True iff the answer is backed by retrieved context.
             - chunks (List[dict]): Raw retrieval results (for debugging/eval).
+            - retrieval_query (str): The query actually used for retrieval (the
+                                     condensed form for follow-ups).
 
     Example:
         >>> res = ask("Is downtown State College expensive?", k=5)
@@ -391,10 +511,15 @@ def ask(question: str,
     """
     question = (question or "").strip()
     if not question:
-        return {"answer": "Please enter a question.", "sources": [], "grounded": False, "chunks": []}
+        return {"answer": "Please enter a question.", "sources": [], "grounded": False,
+                "chunks": [], "retrieval_query": question}
+
+    # Conversational memory: fold prior turns into a standalone retrieval query so
+    # a follow-up like "Is it expensive?" carries the entity from earlier turns.
+    search_query = retrieval_query or condense_question(question, history, llm_model=llm_model)
 
     retrieval = retrieve(
-        question,
+        search_query,
         persist_dir=persist_dir,
         collection_name=collection_name,
         model_name=model_name,
@@ -406,20 +531,23 @@ def ask(question: str,
     )
     results = retrieval.get("results") or []
 
-    # No Context -> Refuse without ever calling the LLM. Grounding can't be
-    # violated if the model is never asked.
+    # No Context -> Refuse without ever calling the LLM for an answer. Grounding
+    # can't be violated if the model is never asked to produce one.
     if not results:
-        return {"answer": EMPTY_RETRIEVAL_MESSAGE, "sources": [], "grounded": False, "chunks": []}
+        return {"answer": EMPTY_RETRIEVAL_MESSAGE, "sources": [], "grounded": False,
+                "chunks": [], "retrieval_query": search_query}
 
     context, sources = _format_context_and_sources(results)
-    messages = _build_messages(question, context)
+    messages = _build_messages(question, context, history=history)
     answer = _generate(messages, llm_model, max_tokens, temperature)
 
     # If the model refused, suppress sources: there is no grounded claim to attribute.
     if _looks_like_refusal(answer):
-        return {"answer": REFUSAL_PHRASE, "sources": [], "grounded": False, "chunks": results}
+        return {"answer": REFUSAL_PHRASE, "sources": [], "grounded": False,
+                "chunks": results, "retrieval_query": search_query}
 
-    return {"answer": answer, "sources": sources, "grounded": True, "chunks": results}
+    return {"answer": answer, "sources": sources, "grounded": True,
+            "chunks": results, "retrieval_query": search_query}
 
 
 # ---- CLI For Quick Manual Checks ---------------------------------------------

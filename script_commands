@@ -52,10 +52,25 @@ End-to-end grounded answer (Stage 5):
 python -m app.query "What do students say about Hendricks Investments?" --k 5
 python -m app.query "when does the lease start" --k 3 --source livingoffcampus.psu.edu
 
+----------------------------------------------------------------------
+Multi-turn conversational memory (Stage 5):
+----------------------------------------------------------------------
+
+Interactive REPL — ask a question, then a follow-up that relies on it:
+
+python -m app.conversation
+    You: Is The Maxxen well ranked by students?
+    You: Is it expensive?            <- condensed to "Is The Maxxen expensive?" before retrieval
+    You: reset                       <- clears history;  'exit' to quit
+
+----------------------------------------------------------------------
 Run tests:
+----------------------------------------------------------------------
 
 python -m pytest tests/ -q
 
-Launch the app:
+----------------------------------------------------------------------
+Launch the app (now a multi-turn chat UI):
+----------------------------------------------------------------------
 
 python -m app.app

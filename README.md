@@ -153,6 +153,12 @@ Below are five representative chunks extracted from the processed corpus (each l
 - The CLI exposes these via `--source`, `--min-rating`, `--date-after`, `--date-before`, and `--no-hybrid` / `--no-rerank`.
 - `source` filtering/boosting works today against the `source` metadata stored on every chunk. `date`/`rating` filter plumbing is active but depends on those fields being populated, which requires extending extraction.
 
+**Conversational Memory (Implemented):**
+- Multi-turn support: a context-dependent follow-up ("is it expensive?", "what about parking there?") is understood against the previous turns instead of being treated as a fresh, isolated query.
+- Query condensation: before retrieval, `condense_question(...)` folds the recent conversation + latest message into one standalone search query (resolving pronouns and carrying over constraints), because a bare follow-up embeds poorly — the entity it refers to lives in an earlier turn. Verified live: after "Is The Maxxen well ranked by students?", the follow-up "Is it expensive?" condenses to "Is The Maxxen expensive?" and correctly retrieves the ~$1,400/month chunks.
+- History-aware generation: recent turns are added to the prompt for reference resolution only; the grounding contract is reasserted (prior turns are not a source of facts, the answer still comes solely from the numbered passages, and empty retrieval still refuses).
+- Surfaces: a `Conversation` class (`app/conversation.py`) holds a bounded rolling history; the Gradio UI is now a chat interface with one `Conversation` per session (`gr.State`), and a terminal REPL is available via `python -m app.conversation`.
+
 **Planned Stretch (Not Implemented Yet)**:
 - Extended Extraction: Parse and store `date` (post/article date) and `rating` (e.g., star/score) at ingestion so the existing `date`/`rating` filters become fully effective across the corpus.
 
