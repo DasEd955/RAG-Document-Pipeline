@@ -97,7 +97,7 @@ center(d, W / 2, 66, "Unofficial Off-Campus Housing Guide  -  Penn State / State
 # ---- Sources (input) ---------------------------------------------------------
 y = 108
 box(LX, y, BW, 70, C_IN,
-    title="Sources  -  12 HTML documents",
+    title="Sources  -  11 HTML documents",
     lines=["Reddit . TripAdvisor . Penn State guide . College Magazine . Daily Collegian . Facebook"],
     title_font=f_stage, line_font=f_small)
 varrow(CX, y + 70, y + 70 + 36, "raw HTML")
